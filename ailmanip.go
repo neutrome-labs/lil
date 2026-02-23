@@ -490,6 +490,39 @@ func (p *Program) CountMessages() int {
 	return len(p.Messages())
 }
 
+// SetAtIndex returns a new program with the instruction at the given index
+// replaced by inst. An out-of-range index is a no-op (returns a clone).
+// The original is not modified.
+func (p *Program) SetAtIndex(index int, inst Instruction) *Program {
+	if index < 0 || index >= len(p.Code) {
+		return p.Clone()
+	}
+	return p.ReplaceRange(index, index, inst)
+}
+
+// ClearAtIndex returns a new program with all instructions at the given indices
+// removed. Duplicate or out-of-range indices are silently ignored.
+// The original is not modified.
+func (p *Program) ClearAtIndex(indices ...int) *Program {
+	remove := make(map[int]bool, len(indices))
+	for _, idx := range indices {
+		if idx >= 0 && idx < len(p.Code) {
+			remove[idx] = true
+		}
+	}
+	if len(remove) == 0 {
+		return p.Clone()
+	}
+	result := NewProgram()
+	for i, inst := range p.Code {
+		if !remove[i] {
+			result.Code = append(result.Code, cloneInstruction(inst))
+		}
+	}
+	result.Buffers = p.Buffers
+	return result
+}
+
 // Config returns all SET_META key-value pairs as a map.
 func (p *Program) Config() map[string]string {
 	m := make(map[string]string)

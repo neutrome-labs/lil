@@ -237,6 +237,56 @@ func TestConfig(t *testing.T) {
 	}
 }
 
+func TestSetAtIndex(t *testing.T) {
+	p := buildConversation()
+	// Index 0 is SET_MODEL — replace it with SET_STREAM.
+	p2 := p.SetAtIndex(0, Instruction{Op: SET_STREAM})
+	if p2.Code[0].Op != SET_STREAM {
+		t.Fatalf("expected SET_STREAM at 0, got %v", p2.Code[0].Op)
+	}
+	// Original must be unchanged.
+	if p.Code[0].Op != SET_MODEL {
+		t.Fatalf("original modified")
+	}
+	// Out-of-range is a no-op clone.
+	p3 := p.SetAtIndex(9999, Instruction{Op: SET_STREAM})
+	if p3.Len() != p.Len() {
+		t.Fatalf("out-of-range changed length")
+	}
+}
+
+func TestClearAtIndex(t *testing.T) {
+	p := buildConversation()
+	origLen := p.Len()
+
+	// Remove single instruction.
+	p2 := p.ClearAtIndex(0)
+	if p2.Len() != origLen-1 {
+		t.Fatalf("expected %d, got %d", origLen-1, p2.Len())
+	}
+	if p.Len() != origLen {
+		t.Fatalf("original modified")
+	}
+
+	// Remove multiple instructions.
+	p3 := p.ClearAtIndex(0, 1, 2)
+	if p3.Len() != origLen-3 {
+		t.Fatalf("expected %d, got %d", origLen-3, p3.Len())
+	}
+
+	// Duplicate indices counted once.
+	p4 := p.ClearAtIndex(0, 0)
+	if p4.Len() != origLen-1 {
+		t.Fatalf("duplicate index should remove only one, got %d", p4.Len())
+	}
+
+	// Out-of-range is a no-op clone.
+	p5 := p.ClearAtIndex(9999)
+	if p5.Len() != origLen {
+		t.Fatalf("out-of-range changed length")
+	}
+}
+
 // ─── ToolDefs / ToolCalls / ToolResults traversal ────────────────────────────
 
 func buildToolProgram() *Program {
@@ -580,6 +630,9 @@ func TestManipulationsAreImmutable(t *testing.T) {
 	_ = p.ReplaceRange(0, 0, Instruction{Op: SET_MODEL, Str: "x"})
 	_ = p.InsertBefore(0, Instruction{Op: SET_STREAM})
 	_ = p.InsertAfter(0, Instruction{Op: SET_STREAM})
+	_ = p.SetAtIndex(0, Instruction{Op: SET_STREAM})
+	_ = p.ClearAtIndex(0)
+	_ = p.ClearAtIndex(0, 1, 2)
 
 	if p.Len() != originalLen {
 		t.Fatalf("original len changed: %d -> %d", originalLen, p.Len())
