@@ -20,6 +20,17 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 	var currentRole string
 	var textContent string
 
+	// Tool call state (within an assistant message)
+	var currentCallID string
+	var currentCallName string
+	var currentCallArgs string
+	inCall := false
+
+	// Tool result state (within a tool message)
+	var currentResultCallID string
+	var currentResultData string
+	inResult := false
+
 	// Tool definition state
 	var currentTool map[string]any
 	inToolDefs := false
@@ -51,6 +62,8 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 			currentMsg = make(map[string]any)
 			currentRole = ""
 			textContent = ""
+			inCall = false
+			inResult = false
 
 		case ROLE_SYS:
 			currentRole = "system"
@@ -64,6 +77,68 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 		case TXT_CHUNK:
 			textContent += inst.Str
 
+		// Tool calls (assistant → function_call items)
+		case CALL_START:
+			inCall = true
+			currentCallID = inst.Str
+			currentCallName = ""
+			currentCallArgs = ""
+
+		case CALL_NAME:
+			if inCall {
+				currentCallName = inst.Str
+			}
+
+		case CALL_ARGS:
+			if inCall {
+				currentCallArgs = string(inst.JSON)
+			}
+
+		case CALL_END:
+			if inCall {
+				// Responses API: each function call is a separate input item.
+				// Flush any pending text message first.
+				if currentMsg != nil && textContent != "" {
+					currentMsg["role"] = currentRole
+					currentMsg["content"] = textContent
+					ec.MergeInto(currentMsg)
+					input = append(input, currentMsg)
+					currentMsg = make(map[string]any)
+					textContent = ""
+				}
+
+				callItem := map[string]any{
+					"type":      "function_call",
+					"call_id":   currentCallID,
+					"name":      currentCallName,
+					"arguments": currentCallArgs,
+				}
+				input = append(input, callItem)
+				inCall = false
+			}
+
+		// Tool results (tool → function_call_output items)
+		case RESULT_START:
+			inResult = true
+			currentResultCallID = inst.Str
+			currentResultData = ""
+
+		case RESULT_DATA:
+			if inResult {
+				currentResultData = inst.Str
+			}
+
+		case RESULT_END:
+			if inResult {
+				resultItem := map[string]any{
+					"type":    "function_call_output",
+					"call_id": currentResultCallID,
+					"output":  currentResultData,
+				}
+				input = append(input, resultItem)
+				inResult = false
+			}
+
 		case MSG_END:
 			if currentMsg != nil {
 				if currentRole == "system" {
@@ -72,13 +147,28 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 						systemText += "\n\n"
 					}
 					systemText += textContent
-				} else {
-					currentMsg["role"] = currentRole
-					if textContent != "" {
-						currentMsg["content"] = textContent
+				} else if currentRole == "tool" {
+					// Tool results already emitted via RESULT_END above.
+					// If there was no RESULT block but textContent exists, emit as output.
+					if !inResult && textContent != "" && currentResultCallID == "" {
+						// Fallback: bare tool message with text content.
+						toolMsg := map[string]any{
+							"role":    currentRole,
+							"content": textContent,
+						}
+						ec.MergeInto(toolMsg)
+						input = append(input, toolMsg)
 					}
-					ec.MergeInto(currentMsg)
-					input = append(input, currentMsg)
+				} else {
+					// user or assistant text message
+					if textContent != "" {
+						currentMsg["role"] = currentRole
+						currentMsg["content"] = textContent
+						ec.MergeInto(currentMsg)
+						input = append(input, currentMsg)
+					}
+					// If assistant message had only tool calls (no text),
+					// the function_call items were already emitted via CALL_END.
 				}
 				currentMsg = nil
 			}
