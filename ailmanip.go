@@ -485,6 +485,17 @@ func (p *Program) AppendUserMessage(text string) *Program {
 	return result
 }
 
+// AppendAssistantMessage appends a new assistant message at the end of the instruction
+// stream. Returns a new program; the original is not modified.
+func (p *Program) AppendAssistantMessage(text string) *Program {
+	result := p.Clone()
+	result.Emit(MSG_START)
+	result.Emit(ROLE_AST)
+	result.EmitString(TXT_CHUNK, text)
+	result.Emit(MSG_END)
+	return result
+}
+
 // CountMessages returns the total number of messages.
 func (p *Program) CountMessages() int {
 	return len(p.Messages())
