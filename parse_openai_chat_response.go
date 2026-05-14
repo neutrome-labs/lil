@@ -80,6 +80,22 @@ func (p *ChatCompletionsParser) ParseResponse(body []byte) (*Program, error) {
 							var contentStr string
 							if json.Unmarshal(msg.Content, &contentStr) == nil && contentStr != "" {
 								prog.EmitString(TXT_CHUNK, contentStr)
+							} else {
+								var parts []json.RawMessage
+								if json.Unmarshal(msg.Content, &parts) == nil {
+									for _, rawPart := range parts {
+										var part struct {
+											Type    string `json:"type"`
+											Text    string `json:"text,omitempty"`
+											Refusal string `json:"refusal,omitempty"`
+										}
+										if json.Unmarshal(rawPart, &part) == nil && part.Type == "text" && part.Text != "" {
+											prog.EmitString(TXT_CHUNK, part.Text)
+										} else {
+											prog.EmitJSON(PART_JSON, rawPart)
+										}
+									}
+								}
 							}
 						}
 

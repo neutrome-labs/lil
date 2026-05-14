@@ -55,19 +55,25 @@ func (p *GoogleGenAIParser) ParseResponse(body []byte) (*Program, error) {
 
 				if contentRaw, ok := candMap["content"]; ok {
 					var content struct {
-						Parts []struct {
-							Text             string `json:"text,omitempty"`
-							Thought          *bool  `json:"thought,omitempty"`
-							ThoughtSignature string `json:"thoughtSignature,omitempty"`
-							FunctionCall     *struct {
-								Name string          `json:"name"`
-								Args json.RawMessage `json:"args"`
-							} `json:"functionCall,omitempty"`
-						} `json:"parts"`
+						Parts []json.RawMessage `json:"parts"`
 					}
 					if json.Unmarshal(contentRaw, &content) == nil {
-						for _, part := range content.Parts {
+						for _, rawPart := range content.Parts {
+							var part struct {
+								Text             string `json:"text,omitempty"`
+								Thought          *bool  `json:"thought,omitempty"`
+								ThoughtSignature string `json:"thoughtSignature,omitempty"`
+								FunctionCall     *struct {
+									Name string          `json:"name"`
+									Args json.RawMessage `json:"args"`
+								} `json:"functionCall,omitempty"`
+							}
+							if json.Unmarshal(rawPart, &part) != nil {
+								continue
+							}
+							handled := false
 							if part.Thought != nil && *part.Thought {
+								handled = true
 								prog.Emit(THINK_START)
 								if part.Text != "" {
 									prog.EmitString(THINK_CHUNK, part.Text)
@@ -78,15 +84,20 @@ func (p *GoogleGenAIParser) ParseResponse(body []byte) (*Program, error) {
 								}
 								prog.Emit(THINK_END)
 							} else if part.Text != "" {
+								handled = true
 								prog.EmitString(TXT_CHUNK, part.Text)
 							}
 							if part.FunctionCall != nil {
+								handled = true
 								prog.EmitString(CALL_START, "")
 								prog.EmitString(CALL_NAME, part.FunctionCall.Name)
 								if len(part.FunctionCall.Args) > 0 {
 									prog.EmitJSON(CALL_ARGS, part.FunctionCall.Args)
 								}
 								prog.Emit(CALL_END)
+							}
+							if !handled {
+								prog.EmitJSON(PART_JSON, rawPart)
 							}
 						}
 					}

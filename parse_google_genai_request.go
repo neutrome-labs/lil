@@ -27,8 +27,8 @@ func (p *GoogleGenAIParser) ParseRequest(body []byte) (*Program, error) {
 		delete(raw, "model")
 	}
 
-	// generation_config
-	if gcRaw, ok := raw["generation_config"]; ok {
+	// generation_config / generationConfig
+	if gcRaw, key, ok := takeRaw(raw, "generation_config", "generationConfig"); ok {
 		var gcMap map[string]json.RawMessage
 		if json.Unmarshal(gcRaw, &gcMap) == nil {
 			var gc struct {
@@ -40,27 +40,59 @@ func (p *GoogleGenAIParser) ParseRequest(body []byte) (*Program, error) {
 			if json.Unmarshal(gcRaw, &gc) == nil {
 				if gc.Temperature != nil {
 					prog.EmitFloat(SET_TEMP, *gc.Temperature)
+					delete(gcMap, "temperature")
 				}
 				if gc.TopP != nil {
 					prog.EmitFloat(SET_TOPP, *gc.TopP)
+					delete(gcMap, "topP")
+					delete(gcMap, "top_p")
 				}
 				if gc.MaxOutputTokens != nil {
 					prog.EmitInt(SET_MAX, *gc.MaxOutputTokens)
+					delete(gcMap, "maxOutputTokens")
+					delete(gcMap, "max_output_tokens")
 				}
 				for _, s := range gc.StopSequences {
 					prog.EmitString(SET_STOP, s)
 				}
+				if len(gc.StopSequences) > 0 {
+					delete(gcMap, "stopSequences")
+					delete(gcMap, "stop_sequences")
+				}
 			}
-			// thinking_config inside generation_config
-			if tcRaw, ok := gcMap["thinking_config"]; ok {
-				prog.EmitJSON(SET_THINK, tcRaw)
+			// thinking_config / thinkingConfig inside generation_config
+			if tcRaw, tcKey, ok := takeRaw(gcMap, "thinking_config", "thinkingConfig"); ok {
+				emitThinkingConfig(prog, tcRaw, "generationConfig.thinkingConfig")
+				delete(gcMap, tcKey)
+			}
+			if fmtJSON, ok := googleFormatFromGenerationConfig(gcMap); ok {
+				prog.EmitJSON(SET_FMT, fmtJSON)
+				delete(gcMap, "responseMimeType")
+				delete(gcMap, "response_mime_type")
+				delete(gcMap, "responseSchema")
+				delete(gcMap, "response_schema")
+				delete(gcMap, "responseJsonSchema")
+				delete(gcMap, "response_json_schema")
+			}
+			for cfgKey, cfgVal := range gcMap {
+				prog.EmitKeyJSON(EXT_DATA, "generationConfig."+cfgKey, cfgVal)
 			}
 		}
-		delete(raw, "generation_config")
+		delete(raw, key)
 	}
 
-	// system_instruction
-	if sysRaw, ok := raw["system_instruction"]; ok {
+	// safety_settings / safetySettings
+	if safetyRaw, key, ok := takeRaw(raw, "safety_settings", "safetySettings"); ok {
+		prog.EmitJSON(SET_SAFETY, safetyRaw)
+		delete(raw, key)
+	}
+	if tcRaw, key, ok := takeRaw(raw, "tool_config", "toolConfig"); ok {
+		prog.EmitJSON(SET_TOOL, tcRaw)
+		delete(raw, key)
+	}
+
+	// system_instruction / systemInstruction
+	if sysRaw, key, ok := takeRaw(raw, "system_instruction", "systemInstruction"); ok {
 		var sysParts struct {
 			Parts []struct {
 				Text string `json:"text"`
@@ -74,7 +106,7 @@ func (p *GoogleGenAIParser) ParseRequest(body []byte) (*Program, error) {
 				prog.Emit(MSG_END)
 			}
 		}
-		delete(raw, "system_instruction")
+		delete(raw, key)
 	}
 
 	// Tools
@@ -89,8 +121,10 @@ func (p *GoogleGenAIParser) ParseRequest(body []byte) (*Program, error) {
 				}
 				fdRaw, ok := tsMap["functionDeclarations"]
 				if !ok {
+					prog.EmitJSON(DEF_RAW, rts)
 					continue
 				}
+				delete(tsMap, "functionDeclarations")
 				var rawDecls []json.RawMessage
 				if json.Unmarshal(fdRaw, &rawDecls) != nil {
 					continue
@@ -124,6 +158,10 @@ func (p *GoogleGenAIParser) ParseRequest(body []byte) (*Program, error) {
 						prog.EmitKeyJSON(EXT_DATA, key, val)
 					}
 				}
+				if len(tsMap) > 0 {
+					rawTool, _ := json.Marshal(tsMap)
+					prog.EmitJSON(DEF_RAW, rawTool)
+				}
 			}
 			prog.Emit(DEF_END)
 		}
@@ -133,24 +171,8 @@ func (p *GoogleGenAIParser) ParseRequest(body []byte) (*Program, error) {
 	// Contents (messages)
 	if contentsRaw, ok := raw["contents"]; ok {
 		var contents []struct {
-			Role  string `json:"role"`
-			Parts []struct {
-				Text             string `json:"text,omitempty"`
-				Thought          *bool  `json:"thought,omitempty"`
-				ThoughtSignature string `json:"thoughtSignature,omitempty"`
-				FunctionCall     *struct {
-					Name string          `json:"name"`
-					Args json.RawMessage `json:"args"`
-				} `json:"functionCall,omitempty"`
-				FunctionResponse *struct {
-					Name     string          `json:"name"`
-					Response json.RawMessage `json:"response"`
-				} `json:"functionResponse,omitempty"`
-				InlineData *struct {
-					MimeType string `json:"mimeType"`
-					Data     string `json:"data"`
-				} `json:"inlineData,omitempty"`
-			} `json:"parts"`
+			Role  string            `json:"role"`
+			Parts []json.RawMessage `json:"parts"`
 		}
 		if json.Unmarshal(contentsRaw, &contents) == nil {
 			for _, content := range contents {
@@ -165,8 +187,42 @@ func (p *GoogleGenAIParser) ParseRequest(body []byte) (*Program, error) {
 					prog.Emit(ROLE_TOOL)
 				}
 
-				for _, part := range content.Parts {
+				for _, rawPart := range content.Parts {
+					var part struct {
+						Text             string `json:"text,omitempty"`
+						Thought          *bool  `json:"thought,omitempty"`
+						ThoughtSignature string `json:"thoughtSignature,omitempty"`
+						FunctionCall     *struct {
+							Name string          `json:"name"`
+							Args json.RawMessage `json:"args"`
+						} `json:"functionCall,omitempty"`
+						FunctionResponse *struct {
+							Name     string          `json:"name"`
+							Response json.RawMessage `json:"response"`
+						} `json:"functionResponse,omitempty"`
+						InlineData *struct {
+							MimeType string `json:"mimeType"`
+							Data     string `json:"data"`
+						} `json:"inlineData,omitempty"`
+						InlineDataSnake *struct {
+							MimeType string `json:"mime_type"`
+							Data     string `json:"data"`
+						} `json:"inline_data,omitempty"`
+						FileData *struct {
+							MimeType string `json:"mimeType"`
+							FileURI  string `json:"fileUri"`
+						} `json:"fileData,omitempty"`
+						FileDataSnake *struct {
+							MimeType string `json:"mime_type"`
+							FileURI  string `json:"file_uri"`
+						} `json:"file_data,omitempty"`
+					}
+					if json.Unmarshal(rawPart, &part) != nil {
+						continue
+					}
+					handled := false
 					if part.Thought != nil && *part.Thought {
+						handled = true
 						// Thinking part
 						prog.Emit(THINK_START)
 						if part.Text != "" {
@@ -178,9 +234,11 @@ func (p *GoogleGenAIParser) ParseRequest(body []byte) (*Program, error) {
 						}
 						prog.Emit(THINK_END)
 					} else if part.Text != "" {
+						handled = true
 						prog.EmitString(TXT_CHUNK, part.Text)
 					}
 					if part.FunctionCall != nil {
+						handled = true
 						prog.EmitString(CALL_START, "")
 						prog.EmitString(CALL_NAME, part.FunctionCall.Name)
 						if len(part.FunctionCall.Args) > 0 {
@@ -189,20 +247,60 @@ func (p *GoogleGenAIParser) ParseRequest(body []byte) (*Program, error) {
 						prog.Emit(CALL_END)
 					}
 					if part.FunctionResponse != nil {
+						handled = true
 						prog.EmitString(RESULT_START, part.FunctionResponse.Name)
 						prog.EmitString(RESULT_DATA, string(part.FunctionResponse.Response))
 						prog.Emit(RESULT_END)
 					}
-					if part.InlineData != nil {
-						ref := prog.AddBuffer([]byte(part.InlineData.Data))
-						if part.InlineData.MimeType != "" {
-							prog.EmitKeyVal(SET_META, "media_type", part.InlineData.MimeType)
+					inlineData := part.InlineData
+					if inlineData == nil && part.InlineDataSnake != nil {
+						inlineData = &struct {
+							MimeType string `json:"mimeType"`
+							Data     string `json:"data"`
+						}{MimeType: part.InlineDataSnake.MimeType, Data: part.InlineDataSnake.Data}
+					}
+					if inlineData != nil {
+						handled = true
+						ref := prog.AddBuffer([]byte(inlineData.Data))
+						if inlineData.MimeType != "" {
+							prog.EmitKeyVal(SET_META, "media_type", inlineData.MimeType)
 						}
-						if isAudioMime(part.InlineData.MimeType) {
+						if isAudioMime(inlineData.MimeType) {
 							prog.EmitRef(AUD_REF, ref)
-						} else {
+						} else if isVideoMime(inlineData.MimeType) {
+							prog.EmitRef(VID_REF, ref)
+						} else if isImageMime(inlineData.MimeType) {
 							prog.EmitRef(IMG_REF, ref)
+						} else {
+							prog.EmitRef(FILE_REF, ref)
 						}
+					}
+					fileData := part.FileData
+					if fileData == nil && part.FileDataSnake != nil {
+						fileData = &struct {
+							MimeType string `json:"mimeType"`
+							FileURI  string `json:"fileUri"`
+						}{MimeType: part.FileDataSnake.MimeType, FileURI: part.FileDataSnake.FileURI}
+					}
+					if fileData != nil {
+						handled = true
+						ref := prog.AddBuffer([]byte(fileData.FileURI))
+						if fileData.MimeType != "" {
+							prog.EmitKeyVal(SET_META, "media_type", fileData.MimeType)
+						}
+						prog.EmitKeyVal(SET_META, "source_type", "file_uri")
+						if isAudioMime(fileData.MimeType) {
+							prog.EmitRef(AUD_REF, ref)
+						} else if isVideoMime(fileData.MimeType) {
+							prog.EmitRef(VID_REF, ref)
+						} else if isImageMime(fileData.MimeType) {
+							prog.EmitRef(IMG_REF, ref)
+						} else {
+							prog.EmitRef(FILE_REF, ref)
+						}
+					}
+					if !handled {
+						prog.EmitJSON(PART_JSON, rawPart)
 					}
 				}
 
@@ -220,6 +318,25 @@ func (p *GoogleGenAIParser) ParseRequest(body []byte) (*Program, error) {
 	return prog, nil
 }
 
-func isAudioMime(mime string) bool {
-	return len(mime) > 6 && mime[:6] == "audio/"
+func googleFormatFromGenerationConfig(gcMap map[string]json.RawMessage) (json.RawMessage, bool) {
+	result := make(map[string]json.RawMessage)
+	for _, key := range []string{"responseMimeType", "response_mime_type", "responseSchema", "response_schema", "responseJsonSchema", "response_json_schema"} {
+		if val, ok := gcMap[key]; ok {
+			result[key] = val
+		}
+	}
+	if len(result) == 0 {
+		return nil, false
+	}
+	out, _ := json.Marshal(result)
+	return out, true
+}
+
+func takeRaw(m map[string]json.RawMessage, keys ...string) (json.RawMessage, string, bool) {
+	for _, key := range keys {
+		if raw, ok := m[key]; ok {
+			return raw, key, true
+		}
+	}
+	return nil, "", false
 }

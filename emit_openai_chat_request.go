@@ -21,7 +21,11 @@ func (e *ChatCompletionsEmitter) EmitRequest(prog *Program) ([]byte, error) {
 	var textContent string
 	var isMultimodal bool
 	var toolCalls []map[string]any
-	var thinkingConfig json.RawMessage
+	var reasoningEffort string
+	var lastMediaType string
+	var lastSourceType string
+	var lastFilename string
+	var lastDetail string
 
 	// Reasoning content state
 	inThinking := false
@@ -55,11 +59,13 @@ func (e *ChatCompletionsEmitter) EmitRequest(prog *Program) ([]byte, error) {
 			result["stream"] = true
 			result["stream_options"] = map[string]any{"include_usage": true}
 
-		case SET_THINK:
-			thinkingConfig = inst.JSON
+		case SET_REASON_EFFORT:
+			reasoningEffort = inst.Str
 
 		case SET_FMT:
 			result["response_format"] = json.RawMessage(inst.JSON)
+		case SET_TOOL:
+			result["tool_choice"] = json.RawMessage(inst.JSON)
 
 		// ── Messages ──
 		case MSG_START:
@@ -73,9 +79,12 @@ func (e *ChatCompletionsEmitter) EmitRequest(prog *Program) ([]byte, error) {
 			currentToolCallID = ""
 			reasoningContent = ""
 			inThinking = false
+			lastMediaType, lastSourceType, lastFilename, lastDetail = "", "", "", ""
 
 		case ROLE_SYS:
 			currentRole = "system"
+		case ROLE_DEV:
+			currentRole = "developer"
 		case ROLE_USR:
 			currentRole = "user"
 		case ROLE_AST:
@@ -127,6 +136,10 @@ func (e *ChatCompletionsEmitter) EmitRequest(prog *Program) ([]byte, error) {
 					"url": url,
 				},
 			})
+			if lastDetail != "" {
+				contentParts[len(contentParts)-1].(map[string]any)["image_url"].(map[string]any)["detail"] = lastDetail
+			}
+			lastMediaType, lastSourceType, lastFilename, lastDetail = "", "", "", ""
 
 		case AUD_REF:
 			isMultimodal = true
@@ -142,9 +155,40 @@ func (e *ChatCompletionsEmitter) EmitRequest(prog *Program) ([]byte, error) {
 				textContent = ""
 			}
 			contentParts = append(contentParts, map[string]any{
-				"type":        "input_audio",
-				"input_audio": map[string]any{"data": data},
+				"type": "input_audio",
+				"input_audio": map[string]any{
+					"data":   data,
+					"format": audioFormatFromMime(lastMediaType),
+				},
 			})
+			lastMediaType, lastSourceType, lastFilename, lastDetail = "", "", "", ""
+
+		case FILE_REF, VID_REF:
+			isMultimodal = true
+			data := ""
+			if int(inst.Ref) < len(prog.Buffers) {
+				data = string(prog.Buffers[inst.Ref])
+			}
+			if textContent != "" {
+				contentParts = append(contentParts, map[string]any{
+					"type": "text",
+					"text": textContent,
+				})
+				textContent = ""
+			}
+			contentParts = append(contentParts, openAIChatFilePart(data, lastSourceType, lastFilename))
+			lastMediaType, lastSourceType, lastFilename, lastDetail = "", "", "", ""
+
+		case PART_JSON:
+			isMultimodal = true
+			if textContent != "" {
+				contentParts = append(contentParts, map[string]any{
+					"type": "text",
+					"text": textContent,
+				})
+				textContent = ""
+			}
+			contentParts = append(contentParts, json.RawMessage(inst.JSON))
 
 		case CALL_START:
 			ec.Push()
@@ -249,6 +293,19 @@ func (e *ChatCompletionsEmitter) EmitRequest(prog *Program) ([]byte, error) {
 				fn["parameters"] = json.RawMessage(inst.JSON)
 			}
 
+		case DEF_RAW:
+			if inToolDefs {
+				if currentTool != nil {
+					fn := currentTool["function"].(map[string]any)
+					ec.MergeInto(fn)
+					tools = append(tools, currentTool)
+					currentTool = nil
+				}
+				tools = append(tools, map[string]any{
+					"_raw": json.RawMessage(inst.JSON),
+				})
+			}
+
 		case DEF_END:
 			if inToolDefs && currentTool != nil {
 				fn := currentTool["function"].(map[string]any)
@@ -262,7 +319,13 @@ func (e *ChatCompletionsEmitter) EmitRequest(prog *Program) ([]byte, error) {
 		// ── Extensions ──
 		case SET_META:
 			if inst.Key == "media_type" {
-				// consumed by IMG_REF / AUD_REF, not collected
+				lastMediaType = inst.Str
+			} else if inst.Key == "source_type" {
+				lastSourceType = inst.Str
+			} else if inst.Key == "filename" {
+				lastFilename = inst.Str
+			} else if inst.Key == "detail" {
+				lastDetail = inst.Str
 			} else if ec.Depth() > 0 {
 				ec.AddString(inst.Key, inst.Str)
 			} else {
@@ -283,7 +346,7 @@ func (e *ChatCompletionsEmitter) EmitRequest(prog *Program) ([]byte, error) {
 		result["messages"] = messages
 	}
 	if tools != nil {
-		result["tools"] = tools
+		result["tools"] = unwrapRawObjects(tools)
 	}
 	if len(stopSeqs) == 1 {
 		result["stop"] = stopSeqs[0]
@@ -291,16 +354,27 @@ func (e *ChatCompletionsEmitter) EmitRequest(prog *Program) ([]byte, error) {
 		result["stop"] = stopSeqs
 	}
 
-	// Emit reasoning_effort from thinking config
-	if thinkingConfig != nil {
-		var cfg map[string]any
-		if json.Unmarshal(thinkingConfig, &cfg) == nil {
-			if effort, ok := cfg["effort"]; ok {
-				result["reasoning_effort"] = effort
-			}
-		}
+	if reasoningEffort != "" {
+		result["reasoning_effort"] = reasoningEffort
 	}
 
 	ec.MergeInto(result)
 	return json.Marshal(result)
+}
+
+func openAIChatFilePart(data, sourceType, filename string) map[string]any {
+	file := map[string]any{}
+	switch sourceType {
+	case "file_id":
+		file["file_id"] = data
+	default:
+		file["file_data"] = data
+	}
+	if filename != "" {
+		file["filename"] = filename
+	}
+	return map[string]any{
+		"type": "file",
+		"file": file,
+	}
 }

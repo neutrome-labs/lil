@@ -21,12 +21,13 @@ func init() {
 
 // opcodes that take a plain string argument (rest of line after opcode).
 var stringArgOps = map[Opcode]bool{
+	REQ_START: true, REQ_YIELD: true, SUB_CONTENT: true, SUB_REASON: true, RESP_START: true,
 	TXT_CHUNK: true, DEF_NAME: true, DEF_DESC: true,
 	CALL_START: true, CALL_NAME: true,
 	RESULT_START: true, RESULT_DATA: true,
 	RESP_ID: true, RESP_MODEL: true, RESP_DONE: true,
 	SET_MODEL: true, SET_STOP: true, STREAM_DELTA: true,
-	THINK_CHUNK: true, STREAM_THINK_DELTA: true,
+	THINK_CHUNK: true, STREAM_THINK_DELTA: true, SET_REASON_EFFORT: true, SET_REASON_MODE: true,
 }
 
 // opcodes that take a float64 argument.
@@ -36,18 +37,18 @@ var floatArgOps = map[Opcode]bool{
 
 // opcodes that take an int32 argument.
 var intArgOps = map[Opcode]bool{
-	SET_MAX: true,
+	SET_MAX: true, SET_REASON_BUDGET: true,
 }
 
 // opcodes that take a raw JSON argument.
 var jsonArgOps = map[Opcode]bool{
-	DEF_SCHEMA: true, CALL_ARGS: true, USAGE: true, STREAM_TOOL_DELTA: true,
-	SET_THINK: true, SET_FMT: true,
+	PART_JSON: true, DEF_SCHEMA: true, DEF_RAW: true, CALL_ARGS: true, USAGE: true, STREAM_TOOL_DELTA: true,
+	SET_FMT: true, SET_SAFETY: true, SET_TOOL: true,
 }
 
 // opcodes that take a ref:N argument.
 var refArgOps = map[Opcode]bool{
-	IMG_REF: true, AUD_REF: true, TXT_REF: true, THINK_REF: true,
+	IMG_REF: true, AUD_REF: true, TXT_REF: true, FILE_REF: true, VID_REF: true, THINK_REF: true,
 }
 
 // Asm parses a human-readable assembly listing (as produced by Disasm) back
@@ -109,7 +110,7 @@ func Asm(text string) (*Program, error) {
 		}
 
 		// Buffer declaration: ".ref N <base64>"
-		// Produced by Disasm() for IMG_REF / AUD_REF / TXT_REF payloads.
+		// Produced by Disasm() for *_REF payloads.
 		if strings.HasPrefix(line, ".ref ") {
 			parts := strings.SplitN(line[5:], " ", 2)
 			if len(parts) != 2 {
@@ -173,6 +174,13 @@ func Asm(text string) (*Program, error) {
 					return nil, err
 				}
 				j = strings.TrimSpace(j)
+			}
+			if op == SET_FMT && !strings.HasPrefix(j, "{") && !strings.HasPrefix(j, "[") {
+				b, err := json.Marshal(map[string]string{"type": j})
+				if err != nil {
+					return nil, fmt.Errorf("line %d: invalid SET_FMT shorthand %q: %w", i+1, j, err)
+				}
+				j = string(b)
 			}
 			j = compactJSON(j)
 			if !json.Valid([]byte(j)) {

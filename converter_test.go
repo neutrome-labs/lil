@@ -542,6 +542,135 @@ func TestResponseFormatChatToResponses(t *testing.T) {
 	}
 }
 
+func TestReasoningAndThinkingTypedOpcodes(t *testing.T) {
+	chatInput := `{
+		"model": "gpt-5",
+		"reasoning_effort": "xhigh",
+		"messages": [{"role": "user", "content": "Think hard."}]
+	}`
+	prog, err := (&ChatCompletionsParser{}).ParseRequest([]byte(chatInput))
+	if err != nil {
+		t.Fatalf("parse chat: %v", err)
+	}
+	foundEffort := false
+	for _, inst := range prog.Code {
+		if inst.Op == SET_REASON_EFFORT && inst.Str == "xhigh" {
+			foundEffort = true
+		}
+	}
+	if !foundEffort {
+		t.Fatalf("missing SET_REASON_EFFORT:\n%s", prog.Disasm())
+	}
+	out, err := (&ChatCompletionsEmitter{}).EmitRequest(prog)
+	if err != nil {
+		t.Fatalf("emit chat: %v", err)
+	}
+	var chatOut map[string]any
+	json.Unmarshal(out, &chatOut)
+	if chatOut["reasoning_effort"] != "xhigh" {
+		t.Fatalf("reasoning_effort = %v, want xhigh", chatOut["reasoning_effort"])
+	}
+
+	responsesInput := `{
+		"model": "gpt-5",
+		"reasoning": {"effort": "high", "summary": "auto"},
+		"input": "Hi"
+	}`
+	prog, err = (&ResponsesParser{}).ParseRequest([]byte(responsesInput))
+	if err != nil {
+		t.Fatalf("parse responses: %v", err)
+	}
+	foundEffort = false
+	foundSummary := false
+	for _, inst := range prog.Code {
+		if inst.Op == SET_REASON_EFFORT && inst.Str == "high" {
+			foundEffort = true
+		}
+		if inst.Op == EXT_DATA && inst.Key == "reasoning.summary" {
+			foundSummary = true
+		}
+	}
+	if !foundSummary {
+		t.Fatalf("missing reasoning.summary EXT_DATA:\n%s", prog.Disasm())
+	}
+	if !foundEffort {
+		t.Fatalf("missing Responses SET_REASON_EFFORT:\n%s", prog.Disasm())
+	}
+	out, err = (&ResponsesEmitter{}).EmitRequest(prog)
+	if err != nil {
+		t.Fatalf("emit responses: %v", err)
+	}
+	var responsesOut map[string]any
+	json.Unmarshal(out, &responsesOut)
+	reasoning := responsesOut["reasoning"].(map[string]any)
+	if reasoning["effort"] != "high" || reasoning["summary"] != "auto" {
+		t.Fatalf("bad reasoning output: %s", out)
+	}
+
+	anthropicInput := `{
+		"model": "claude-3",
+		"max_tokens": 1000,
+		"thinking": {"type": "enabled", "budget_tokens": 2048},
+		"messages": [{"role": "user", "content": "Hi"}]
+	}`
+	prog, err = (&AnthropicParser{}).ParseRequest([]byte(anthropicInput))
+	if err != nil {
+		t.Fatalf("parse anthropic: %v", err)
+	}
+	foundMode, foundBudget := false, false
+	for _, inst := range prog.Code {
+		if inst.Op == SET_REASON_MODE && inst.Str == "enabled" {
+			foundMode = true
+		}
+		if inst.Op == SET_REASON_BUDGET && inst.Int == 2048 {
+			foundBudget = true
+		}
+	}
+	if !foundMode || !foundBudget {
+		t.Fatalf("missing typed thinking config mode=%v budget=%v:\n%s", foundMode, foundBudget, prog.Disasm())
+	}
+	out, err = (&AnthropicEmitter{}).EmitRequest(prog)
+	if err != nil {
+		t.Fatalf("emit anthropic: %v", err)
+	}
+	var anthropicOut map[string]any
+	json.Unmarshal(out, &anthropicOut)
+	thinking := anthropicOut["thinking"].(map[string]any)
+	if thinking["type"] != "enabled" || thinking["budget_tokens"].(float64) != 2048 {
+		t.Fatalf("bad thinking output: %s", out)
+	}
+
+	googleInput := `{
+		"model": "gemini-2.5-flash",
+		"generation_config": {"thinking_config": {"thinking_budget": 8192}},
+		"contents": [{"role": "user", "parts": [{"text": "Hi"}]}]
+	}`
+	prog, err = (&GoogleGenAIParser{}).ParseRequest([]byte(googleInput))
+	if err != nil {
+		t.Fatalf("parse google: %v", err)
+	}
+	foundBudget = false
+	for _, inst := range prog.Code {
+		if inst.Op == SET_REASON_BUDGET && inst.Int == 8192 {
+			foundBudget = true
+		}
+	}
+	if !foundBudget {
+		t.Fatalf("missing Google SET_REASON_BUDGET:\n%s", prog.Disasm())
+	}
+	out, err = (&GoogleGenAIEmitter{}).EmitRequest(prog)
+	if err != nil {
+		t.Fatalf("emit google: %v", err)
+	}
+	var googleOut map[string]any
+	json.Unmarshal(out, &googleOut)
+	genConfig := googleOut["generation_config"].(map[string]any)
+	googleThinking := genConfig["thinking_config"].(map[string]any)
+	if googleThinking["thinking_budget"].(float64) != 8192 {
+		t.Fatalf("bad google thinking output: %s", out)
+	}
+}
+
 func TestResponseFormatResponsesToChat(t *testing.T) {
 	input := `{
 		"model": "gpt-4o",
@@ -786,6 +915,297 @@ func TestMediaTypePreservation(t *testing.T) {
 	}
 }
 
+func TestResponsesInputFileRoundTrip(t *testing.T) {
+	input := `{
+		"model": "gpt-5",
+		"input": [{
+			"role": "user",
+			"content": [
+				{"type": "input_file", "file_data": "JVBERi0xLjQK", "filename": "paper.pdf"},
+				{"type": "input_text", "text": "Summarize this."}
+			]
+		}]
+	}`
+
+	parser := &ResponsesParser{}
+	prog, err := parser.ParseRequest([]byte(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	foundFile := false
+	for _, inst := range prog.Code {
+		if inst.Op == FILE_REF {
+			foundFile = true
+		}
+	}
+	if !foundFile {
+		t.Fatalf("expected FILE_REF\n%s", prog.Disasm())
+	}
+
+	out, err := (&ResponsesEmitter{}).EmitRequest(prog)
+	if err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	var result map[string]any
+	json.Unmarshal(out, &result)
+	inputs := result["input"].([]any)
+	msg := inputs[0].(map[string]any)
+	content := msg["content"].([]any)
+	file := content[0].(map[string]any)
+	if file["type"] != "input_file" || file["file_data"] != "JVBERi0xLjQK" || file["filename"] != "paper.pdf" {
+		t.Fatalf("bad file part: %#v", file)
+	}
+}
+
+func TestAnthropicDocumentRoundTrip(t *testing.T) {
+	input := `{
+		"model": "claude-sonnet-4-20250514",
+		"max_tokens": 1024,
+		"messages": [{
+			"role": "user",
+			"content": [{
+				"type": "document",
+				"source": {"type": "base64", "media_type": "application/pdf", "data": "JVBERi0xLjQK"},
+				"title": "paper.pdf",
+				"context": "source document"
+			}]
+		}]
+	}`
+
+	parser := &AnthropicParser{}
+	prog, err := parser.ParseRequest([]byte(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	foundFile := false
+	for _, inst := range prog.Code {
+		if inst.Op == FILE_REF {
+			foundFile = true
+		}
+	}
+	if !foundFile {
+		t.Fatalf("expected FILE_REF\n%s", prog.Disasm())
+	}
+
+	out, err := (&AnthropicEmitter{}).EmitRequest(prog)
+	if err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	var result map[string]any
+	json.Unmarshal(out, &result)
+	msgs := result["messages"].([]any)
+	content := msgs[0].(map[string]any)["content"].([]any)
+	doc := content[0].(map[string]any)
+	source := doc["source"].(map[string]any)
+	if doc["type"] != "document" || source["media_type"] != "application/pdf" || source["data"] != "JVBERi0xLjQK" {
+		t.Fatalf("bad document block: %#v", doc)
+	}
+	if doc["title"] != "paper.pdf" || doc["context"] != "source document" {
+		t.Fatalf("missing document metadata: %#v", doc)
+	}
+}
+
+func TestGoogleSafetyAndVideoRoundTrip(t *testing.T) {
+	input := `{
+		"model": "gemini-2.5-flash",
+		"contents": [{
+			"role": "user",
+			"parts": [
+				{"inlineData": {"mimeType": "video/mp4", "data": "AAAA-video-base64"}},
+				{"fileData": {"mimeType": "application/pdf", "fileUri": "https://example.com/paper.pdf"}},
+				{"text": "Summarize both."}
+			]
+		}],
+		"safetySettings": [{
+			"category": "HARM_CATEGORY_HATE_SPEECH",
+			"threshold": "BLOCK_NONE"
+		}]
+	}`
+
+	parser := &GoogleGenAIParser{}
+	prog, err := parser.ParseRequest([]byte(input))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	foundVideo, foundFile, foundSafety := false, false, false
+	for _, inst := range prog.Code {
+		switch inst.Op {
+		case VID_REF:
+			foundVideo = true
+		case FILE_REF:
+			foundFile = true
+		case SET_SAFETY:
+			foundSafety = true
+		}
+	}
+	if !foundVideo || !foundFile || !foundSafety {
+		t.Fatalf("missing expected opcodes video=%v file=%v safety=%v\n%s", foundVideo, foundFile, foundSafety, prog.Disasm())
+	}
+
+	out, err := (&GoogleGenAIEmitter{}).EmitRequest(prog)
+	if err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	var result map[string]any
+	json.Unmarshal(out, &result)
+	if _, ok := result["safety_settings"]; !ok {
+		t.Fatalf("missing safety_settings: %s", out)
+	}
+	contents := result["contents"].([]any)
+	parts := contents[0].(map[string]any)["parts"].([]any)
+	if parts[0].(map[string]any)["inlineData"] == nil {
+		t.Fatalf("missing video inlineData: %#v", parts[0])
+	}
+	if parts[1].(map[string]any)["fileData"] == nil {
+		t.Fatalf("missing fileData: %#v", parts[1])
+	}
+}
+
+func TestResponsesResponseEmitAndStreamEmit(t *testing.T) {
+	resp := `{
+		"id": "resp_123",
+		"model": "gpt-5",
+		"output": [{
+			"type": "message",
+			"role": "assistant",
+			"status": "completed",
+			"content": [{"type": "output_text", "text": "Hello"}]
+		}],
+		"usage": {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}
+	}`
+
+	out, err := ConvertResponse([]byte(resp), StyleResponses, StyleResponses)
+	if err != nil {
+		t.Fatalf("ConvertResponse Responses->Responses: %v", err)
+	}
+	var result map[string]any
+	json.Unmarshal(out, &result)
+	if result["id"] != "resp_123" || result["model"] != "gpt-5" {
+		t.Fatalf("bad response metadata: %s", out)
+	}
+	output := result["output"].([]any)
+	content := output[0].(map[string]any)["content"].([]any)
+	if content[0].(map[string]any)["text"] != "Hello" {
+		t.Fatalf("bad response output: %s", out)
+	}
+
+	prog := NewProgram()
+	prog.Emit(STREAM_START)
+	prog.EmitString(RESP_ID, "resp_123")
+	prog.EmitString(RESP_MODEL, "gpt-5")
+	streamOut, err := (&ResponsesEmitter{}).EmitStreamChunk(prog)
+	if err != nil {
+		t.Fatalf("EmitStreamChunk: %v", err)
+	}
+	var event map[string]any
+	json.Unmarshal(streamOut, &event)
+	if event["type"] != "response.created" {
+		t.Fatalf("bad stream event: %s", streamOut)
+	}
+}
+
+func TestLosslessNativeToolAndPartCoverage(t *testing.T) {
+	responsesReq := `{
+		"model": "gpt-5",
+		"tool_choice": {"type": "file_search"},
+		"tools": [{"type": "file_search", "vector_store_ids": ["vs_123"]}],
+		"input": [{"role": "developer", "content": [{"type": "input_text", "text": "Be exact."}]}]
+	}`
+	out, err := ConvertRequest([]byte(responsesReq), StyleResponses, StyleResponses)
+	if err != nil {
+		t.Fatalf("responses round-trip: %v", err)
+	}
+	var responsesOut map[string]any
+	json.Unmarshal(out, &responsesOut)
+	if responsesOut["tool_choice"] == nil {
+		t.Fatalf("missing tool_choice: %s", out)
+	}
+	tools := responsesOut["tools"].([]any)
+	if tools[0].(map[string]any)["type"] != "file_search" {
+		t.Fatalf("raw Responses tool not preserved: %s", out)
+	}
+	input := responsesOut["input"].([]any)
+	if input[0].(map[string]any)["role"] != "developer" {
+		t.Fatalf("developer role not preserved: %s", out)
+	}
+
+	googleReq := `{
+		"model": "gemini-2.5-flash",
+		"tools": [{"codeExecution": {}}],
+		"toolConfig": {"functionCallingConfig": {"mode": "AUTO"}},
+		"generationConfig": {
+			"responseMimeType": "application/json",
+			"responseJsonSchema": {"type": "object", "properties": {"ok": {"type": "boolean"}}},
+			"candidateCount": 2
+		},
+		"contents": [{"role": "user", "parts": [
+			{"executableCode": {"language": "PYTHON", "code": "print(1)"}}
+		]}]
+	}`
+	out, err = ConvertRequest([]byte(googleReq), StyleGoogleGenAI, StyleGoogleGenAI)
+	if err != nil {
+		t.Fatalf("google round-trip: %v", err)
+	}
+	var googleOut map[string]any
+	json.Unmarshal(out, &googleOut)
+	if googleOut["toolConfig"] == nil {
+		t.Fatalf("missing toolConfig: %s", out)
+	}
+	genConfig := googleOut["generation_config"].(map[string]any)
+	if genConfig["responseMimeType"] != "application/json" || genConfig["candidateCount"].(float64) != 2 {
+		t.Fatalf("generationConfig not preserved: %s", out)
+	}
+	gTools := googleOut["tools"].([]any)
+	if gTools[0].(map[string]any)["codeExecution"] == nil {
+		t.Fatalf("raw Google tool not preserved: %s", out)
+	}
+	parts := googleOut["contents"].([]any)[0].(map[string]any)["parts"].([]any)
+	if parts[0].(map[string]any)["executableCode"] == nil {
+		t.Fatalf("raw Google part not preserved: %s", out)
+	}
+
+	chatResp := `{
+		"id": "chatcmpl_1",
+		"model": "gpt-5",
+		"choices": [{
+			"index": 0,
+			"message": {"role": "assistant", "content": [{"type": "refusal", "refusal": "I cannot."}]},
+			"finish_reason": "stop"
+		}]
+	}`
+	out, err = ConvertResponse([]byte(chatResp), StyleChatCompletions, StyleChatCompletions)
+	if err != nil {
+		t.Fatalf("chat response round-trip: %v", err)
+	}
+	var chatOut map[string]any
+	json.Unmarshal(out, &chatOut)
+	choice := chatOut["choices"].([]any)[0].(map[string]any)
+	content := choice["message"].(map[string]any)["content"].([]any)
+	if content[0].(map[string]any)["type"] != "refusal" {
+		t.Fatalf("raw Chat content part not preserved: %s", out)
+	}
+
+	responsesToolOutput := `{
+		"model": "gpt-5",
+		"input": [{
+			"type": "function_call_output",
+			"call_id": "call_1",
+			"output": [{"type": "input_file", "file_data": "abc", "filename": "out.txt"}]
+		}]
+	}`
+	out, err = ConvertRequest([]byte(responsesToolOutput), StyleResponses, StyleResponses)
+	if err != nil {
+		t.Fatalf("responses tool output round-trip: %v", err)
+	}
+	json.Unmarshal(out, &responsesOut)
+	input = responsesOut["input"].([]any)
+	output := input[0].(map[string]any)["output"].([]any)
+	if output[0].(map[string]any)["type"] != "input_file" {
+		t.Fatalf("Responses function output parts not preserved: %s", out)
+	}
+}
+
 func TestConverterRegistryCompleteness(t *testing.T) {
 	styles := []Style{StyleChatCompletions, StyleResponses, StyleAnthropic, StyleGoogleGenAI}
 
@@ -804,8 +1224,8 @@ func TestConverterRegistryCompleteness(t *testing.T) {
 		}
 	}
 
-	// Response emitters (not all have them, but OpenAI+Anthropic+Google should)
-	for _, style := range []Style{StyleChatCompletions, StyleAnthropic, StyleGoogleGenAI} {
+	// Response and stream emitters should exist for every supported style.
+	for _, style := range styles {
 		if _, err := GetResponseEmitter(style); err != nil {
 			t.Errorf("GetResponseEmitter(%s): %v", style, err)
 		}

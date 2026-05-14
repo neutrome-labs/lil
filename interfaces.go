@@ -14,6 +14,14 @@ type Emitter interface {
 	EmitRequest(prog *Program) ([]byte, error)
 }
 
+// RequestSequenceEmitter emits materialized request bodies from a sequenced
+// AIL program.
+type RequestSequenceEmitter interface {
+	// EmitRequests converts all currently materializable requests into raw JSON
+	// request bodies. Referenced outputs must be present in outputs.
+	EmitRequests(prog *Program, outputs map[string]RequestOutput) ([]EmittedRequest, error)
+}
+
 // ResponseParser converts a provider-specific JSON response into an AIL Program.
 type ResponseParser interface {
 	// ParseResponse converts a raw JSON response body into an AIL program.

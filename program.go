@@ -29,13 +29,13 @@ type Instruction struct {
 	Int  int32           // used by SET_MAX
 	JSON json.RawMessage // used by DEF_SCHEMA, CALL_ARGS, USAGE, EXT_DATA, STREAM_TOOL_DELTA
 	Key  string          // used by SET_META, EXT_DATA (the key part)
-	Ref  uint32          // used by IMG_REF, AUD_REF, TXT_REF
+	Ref  uint32          // used by IMG_REF, AUD_REF, TXT_REF, FILE_REF, VID_REF
 }
 
 // Program is an ordered list of instructions plus a side-buffer for large blobs.
 type Program struct {
 	Code    []Instruction
-	Buffers [][]byte // side-buffer for IMG_REF, AUD_REF, TXT_REF payloads
+	Buffers [][]byte // side-buffer for *_REF payloads
 }
 
 // NewProgram creates an empty program.
@@ -114,7 +114,7 @@ func (p *Program) Append(other *Program) *Program {
 	for _, inst := range other.Code {
 		clone := cloneInstruction(inst)
 		switch inst.Op {
-		case IMG_REF, AUD_REF, TXT_REF, THINK_REF:
+		case IMG_REF, AUD_REF, TXT_REF, FILE_REF, VID_REF, THINK_REF:
 			clone.Ref += bufOffset
 		}
 		result.Code = append(result.Code, clone)

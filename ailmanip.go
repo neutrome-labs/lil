@@ -10,7 +10,7 @@ import "strings"
 type MessageSpan struct {
 	Start int    // index of MSG_START
 	End   int    // index of MSG_END
-	Role  Opcode // ROLE_SYS, ROLE_USR, ROLE_AST, or ROLE_TOOL
+	Role  Opcode // ROLE_SYS, ROLE_DEV, ROLE_USR, ROLE_AST, or ROLE_TOOL
 }
 
 // ToolDefSpan locates a DEF_START..DEF_END block for a single tool definition.
@@ -54,7 +54,7 @@ func (p *Program) Messages() []MessageSpan {
 		// Scan for the role and the matching MSG_END.
 		for j := i + 1; j < len(p.Code); j++ {
 			switch p.Code[j].Op {
-			case ROLE_SYS, ROLE_USR, ROLE_AST, ROLE_TOOL:
+			case ROLE_SYS, ROLE_DEV, ROLE_USR, ROLE_AST, ROLE_TOOL:
 				if span.Role == 0 {
 					span.Role = p.Code[j].Op
 				}

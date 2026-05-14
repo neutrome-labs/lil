@@ -15,10 +15,17 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 	var input []map[string]any
 	var tools []map[string]any
 	var systemText string
+	var reasoningEffort string
 
 	var currentMsg map[string]any
 	var currentRole string
 	var textContent string
+	var contentParts []any
+	var isMultimodal bool
+	var lastMediaType string
+	var lastSourceType string
+	var lastFilename string
+	var lastDetail string
 
 	// Tool call state (within an assistant message)
 	var currentCallID string
@@ -29,6 +36,7 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 	// Tool result state (within a tool message)
 	var currentResultCallID string
 	var currentResultData string
+	var currentResultRaw json.RawMessage
 	inResult := false
 
 	// Tool definition state
@@ -48,13 +56,15 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 			result["max_output_tokens"] = inst.Int
 		case SET_STREAM:
 			result["stream"] = true
-		case SET_THINK:
-			result["reasoning"] = json.RawMessage(inst.JSON)
+		case SET_REASON_EFFORT:
+			reasoningEffort = inst.Str
 
 		case SET_FMT:
 			result["text"] = map[string]any{
 				"format": json.RawMessage(inst.JSON),
 			}
+		case SET_TOOL:
+			result["tool_choice"] = json.RawMessage(inst.JSON)
 
 		// Messages
 		case MSG_START:
@@ -62,11 +72,16 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 			currentMsg = make(map[string]any)
 			currentRole = ""
 			textContent = ""
+			contentParts = nil
+			isMultimodal = false
 			inCall = false
 			inResult = false
+			currentResultRaw = nil
 
 		case ROLE_SYS:
 			currentRole = "system"
+		case ROLE_DEV:
+			currentRole = "developer"
 		case ROLE_USR:
 			currentRole = "user"
 		case ROLE_AST:
@@ -75,7 +90,62 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 			currentRole = "tool"
 
 		case TXT_CHUNK:
-			textContent += inst.Str
+			if isMultimodal {
+				contentParts = append(contentParts, map[string]any{
+					"type": "input_text",
+					"text": inst.Str,
+				})
+			} else {
+				textContent += inst.Str
+			}
+
+		case IMG_REF:
+			isMultimodal = true
+			if textContent != "" {
+				contentParts = append(contentParts, map[string]any{"type": "input_text", "text": textContent})
+				textContent = ""
+			}
+			data := refString(prog, inst.Ref)
+			contentParts = append(contentParts, openAIResponsesImagePart(data, lastSourceType, lastDetail))
+			lastMediaType, lastSourceType, lastFilename, lastDetail = "", "", "", ""
+
+		case AUD_REF:
+			isMultimodal = true
+			if textContent != "" {
+				contentParts = append(contentParts, map[string]any{"type": "input_text", "text": textContent})
+				textContent = ""
+			}
+			data := refString(prog, inst.Ref)
+			contentParts = append(contentParts, map[string]any{
+				"type": "input_audio",
+				"input_audio": map[string]any{
+					"data":   data,
+					"format": audioFormatFromMime(lastMediaType),
+				},
+			})
+			lastMediaType, lastSourceType, lastFilename, lastDetail = "", "", "", ""
+
+		case FILE_REF, VID_REF:
+			isMultimodal = true
+			if textContent != "" {
+				contentParts = append(contentParts, map[string]any{"type": "input_text", "text": textContent})
+				textContent = ""
+			}
+			data := refString(prog, inst.Ref)
+			contentParts = append(contentParts, openAIResponsesFilePart(data, lastSourceType, lastFilename))
+			lastMediaType, lastSourceType, lastFilename, lastDetail = "", "", "", ""
+
+		case PART_JSON:
+			if inResult {
+				currentResultRaw = inst.JSON
+				break
+			}
+			isMultimodal = true
+			if textContent != "" {
+				contentParts = append(contentParts, map[string]any{"type": "input_text", "text": textContent})
+				textContent = ""
+			}
+			contentParts = append(contentParts, json.RawMessage(inst.JSON))
 
 		// Tool calls (assistant → function_call items)
 		case CALL_START:
@@ -98,13 +168,19 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 			if inCall {
 				// Responses API: each function call is a separate input item.
 				// Flush any pending text message first.
-				if currentMsg != nil && textContent != "" {
+				if currentMsg != nil && (textContent != "" || len(contentParts) > 0) {
 					currentMsg["role"] = currentRole
-					currentMsg["content"] = textContent
+					if len(contentParts) > 0 {
+						currentMsg["content"] = contentParts
+					} else {
+						currentMsg["content"] = textContent
+					}
 					ec.MergeInto(currentMsg)
 					input = append(input, currentMsg)
 					currentMsg = make(map[string]any)
 					textContent = ""
+					contentParts = nil
+					isMultimodal = false
 				}
 
 				callItem := map[string]any{
@@ -122,6 +198,7 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 			inResult = true
 			currentResultCallID = inst.Str
 			currentResultData = ""
+			currentResultRaw = nil
 
 		case RESULT_DATA:
 			if inResult {
@@ -133,7 +210,11 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 				resultItem := map[string]any{
 					"type":    "function_call_output",
 					"call_id": currentResultCallID,
-					"output":  currentResultData,
+				}
+				if currentResultRaw != nil {
+					resultItem["output"] = json.RawMessage(currentResultRaw)
+				} else {
+					resultItem["output"] = currentResultData
 				}
 				input = append(input, resultItem)
 				inResult = false
@@ -161,9 +242,13 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 					}
 				} else {
 					// user or assistant text message
-					if textContent != "" {
+					if textContent != "" || len(contentParts) > 0 {
 						currentMsg["role"] = currentRole
-						currentMsg["content"] = textContent
+						if len(contentParts) > 0 {
+							currentMsg["content"] = contentParts
+						} else {
+							currentMsg["content"] = textContent
+						}
 						ec.MergeInto(currentMsg)
 						input = append(input, currentMsg)
 					}
@@ -202,6 +287,16 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 				currentTool["parameters"] = json.RawMessage(inst.JSON)
 			}
 
+		case DEF_RAW:
+			if inToolDefs {
+				if currentTool != nil {
+					ec.MergeInto(currentTool)
+					tools = append(tools, currentTool)
+					currentTool = nil
+				}
+				tools = append(tools, map[string]any{"_raw": json.RawMessage(inst.JSON)})
+			}
+
 		case DEF_END:
 			if inToolDefs && currentTool != nil {
 				ec.MergeInto(currentTool)
@@ -214,7 +309,13 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 		// Extensions
 		case SET_META:
 			if inst.Key == "media_type" {
-				// consumed by IMG_REF / AUD_REF
+				lastMediaType = inst.Str
+			} else if inst.Key == "source_type" {
+				lastSourceType = inst.Str
+			} else if inst.Key == "filename" {
+				lastFilename = inst.Str
+			} else if inst.Key == "detail" {
+				lastDetail = inst.Str
 			} else if ec.Depth() > 0 {
 				ec.AddString(inst.Key, inst.Str)
 			} else {
@@ -229,13 +330,60 @@ func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {
 	if systemText != "" {
 		result["instructions"] = systemText
 	}
+	if reasoning := mergeReasoningConfig(prefixedExtras(ec, "reasoning"), reasoningEffort); reasoning != nil {
+		result["reasoning"] = reasoning
+	}
 	if input != nil {
 		result["input"] = input
 	}
 	if tools != nil {
-		result["tools"] = tools
+		result["tools"] = unwrapRawObjects(tools)
 	}
 
 	ec.MergeInto(result)
 	return json.Marshal(result)
+}
+
+func openAIResponsesImagePart(data, sourceType, detail string) map[string]any {
+	part := map[string]any{"type": "input_image"}
+	if sourceType == "file_id" {
+		part["file_id"] = data
+	} else {
+		part["image_url"] = data
+	}
+	if detail != "" {
+		part["detail"] = detail
+	}
+	return part
+}
+
+func openAIResponsesFilePart(data, sourceType, filename string) map[string]any {
+	part := map[string]any{"type": "input_file"}
+	switch sourceType {
+	case "file_id":
+		part["file_id"] = data
+	case "file_url", "url":
+		part["file_url"] = data
+	default:
+		part["file_data"] = data
+	}
+	if filename != "" {
+		part["filename"] = filename
+	}
+	return part
+}
+
+func refString(prog *Program, ref uint32) string {
+	if int(ref) >= len(prog.Buffers) {
+		return ""
+	}
+	return string(prog.Buffers[ref])
+}
+
+func audioFormatFromMime(mime string) string {
+	const prefix = "audio/"
+	if len(mime) > len(prefix) && mime[:len(prefix)] == prefix {
+		return mime[len(prefix):]
+	}
+	return "wav"
 }

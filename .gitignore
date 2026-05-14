@@ -1,0 +1,8 @@
+.wrangler/
+node_modules/
+
+demo/wasm/dist/
+demo/wasm/public/examples.json
+demo/wasm/src/generated/
+wasm_exec.js
+*.wasm

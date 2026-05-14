@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>llm2llm - Convert between LLM API formats online</title>
+        <meta
+            name="description"
+            content="Convert OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, Google GenAI, and AIL assembly formats in your browser."
+        />
+        <meta name="robots" content="index, follow" />
+        <meta name="author" content="Neutrome Labs" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="llm2llm" />
+        <meta
+            property="og:title"
+            content="llm2llm - Convert between LLM API formats online"
+        />
+        <meta
+            property="og:description"
+            content="Convert LLM API request, response, and streaming JSON formats in your browser."
+        />
+        <meta name="twitter:card" content="summary" />
+        <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+        <link rel="stylesheet" href="/src/style.css" />
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "WebApplication",
+                "name": "llm2llm",
+                "applicationCategory": "DeveloperApplication",
+                "operatingSystem": "Any",
+                "offers": {
+                    "@type": "Offer",
+                    "price": "0",
+                    "priceCurrency": "USD"
+                },
+                "author": {
+                    "@type": "Organization",
+                    "name": "Neutrome Labs",
+                    "url": "https://github.com/neutrome-labs"
+                }
+            }
+        </script>
+    </head>
+    <body x-data="playground">
+        <div class="app-shell">
+            <header class="topbar">
+                <a href="/" class="brand" aria-label="llm2llm home">
+                    <span class="brand-mark">AIL</span>
+                    <span>
+                        <strong>llm2llm</strong>
+                        <small x-text="page.heading"></small>
+                    </span>
+                </a>
+                <div class="topbar-actions">
+                    <span
+                        class="status-pill"
+                        :class="wasmReady ? 'is-ready' : 'is-loading'"
+                        x-text="wasmReady ? 'WASM ready' : 'Loading WASM'"
+                    ></span>
+                    <a
+                        class="link-button"
+                        href="https://github.com/neutrome-labs/ail"
+                        target="_blank"
+                        rel="noreferrer"
+                        >GitHub</a
+                    >
+                </div>
+            </header>
+
+            <p class="sr-only" x-text="page.intro"></p>
+
+            <main class="workspace">
+                <section class="toolbar" aria-label="Conversion controls">
+                    <label><select x-model="fromStyle">
+                        <option value="openai-chat-completions">OpenAI Chat Completions</option>
+                        <option value="openai-responses">OpenAI Responses</option>
+                        <option value="anthropic-messages">Anthropic Messages</option>
+                        <option value="google-genai">Google GenAI</option>
+                        <option value="ail">AIL Assembly</option>
+                    </select></label>
+                    <span class="route-arrow" aria-hidden="true">-&gt;</span>
+                    <label><select x-model="toStyle">
+                        <option value="openai-chat-completions">OpenAI Chat Completions</option>
+                        <option value="openai-responses">OpenAI Responses</option>
+                        <option value="anthropic-messages">Anthropic Messages</option>
+                        <option value="google-genai">Google GenAI</option>
+                        <option value="ail">AIL Assembly</option>
+                    </select></label>
+                    <label><select x-model="convType">
+                        <option value="request">Request</option>
+                        <option value="response">Response</option>
+                        <option value="stream_chunk">Stream Chunk</option>
+                    </select></label>
+                    <div class="toolbar-buttons">
+                        <button type="button" class="secondary-button" @click="loadExample()">Example</button>
+                        <button type="button" class="secondary-button" :class="showDisasm && 'is-active'" @click="showDisasm = !showDisasm">Disasm</button>
+                        <button type="button" class="primary-button" :disabled="loading || !wasmReady" @click="convert()">
+                            <span x-show="loading">Converting</span><span x-show="!loading">Convert</span>
+                        </button>
+                    </div>
+                </section>
+
+                <section class="manip-bar" aria-label="Manipulation controls">
+                    <label class="check-control"><input type="checkbox" x-model="manips.slwin.enabled" /><span>slwin</span></label>
+                    <label><span>Keep start</span><input type="number" min="0" max="99" x-model.number="manips.slwin.keepStart" :disabled="!manips.slwin.enabled" /></label>
+                    <label><span>Keep end</span><input type="number" min="1" max="99" x-model.number="manips.slwin.keepEnd" :disabled="!manips.slwin.enabled" /></label>
+                    <span class="divider" aria-hidden="true"></span>
+                    <label class="check-control"><input type="checkbox" x-model="manips.kvtools.enabled" /><span>kvtools</span></label>
+                    <label><span>Keep recent</span><input type="number" min="0" max="99" x-model.number="manips.kvtools.keepRecent" :disabled="!manips.kvtools.enabled" /></label>
+                </section>
+
+                <section class="panels" :class="showDisasm && 'has-disasm'">
+                    <article class="panel">
+                        <div class="panel-head">
+                            <strong>Input</strong>
+                            <button
+                                type="button"
+                                class="text-button"
+                                @click="copyText(input)"
+                            >
+                                Copy
+                            </button>
+                        </div>
+                        <textarea
+                            x-model="input"
+                            @keydown.ctrl.enter.prevent="convert()"
+                            @keydown.meta.enter.prevent="convert()"
+                            spellcheck="false"
+                            placeholder="Paste JSON or AIL assembly here"
+                        ></textarea>
+                    </article>
+
+                    <article class="panel">
+                        <div class="panel-head">
+                            <strong>Output</strong>
+                            <button
+                                type="button"
+                                class="text-button"
+                                @click="copyText(lastOutput)"
+                            >
+                                Copy
+                            </button>
+                        </div>
+                        <div class="code-output">
+                            <template x-if="error">
+                                <pre class="error-text" x-text="error"></pre>
+                            </template>
+                            <template x-if="!error && !lastOutput">
+                                <p class="empty-state">
+                                    Converted output will appear here.
+                                </p>
+                            </template>
+                            <template x-if="!error && lastOutput">
+                                <pre x-html="highlightedOutput"></pre>
+                            </template>
+                        </div>
+                    </article>
+
+                    <article class="panel disasm-panel" x-show="showDisasm">
+                        <div class="panel-head">
+                            <strong>AIL Disassembly</strong>
+                            <button
+                                type="button"
+                                class="text-button"
+                                @click="copyText(lastDisasm)"
+                            >
+                                Copy
+                            </button>
+                        </div>
+                        <div class="code-output">
+                            <template x-if="lastDisasm">
+                                <pre x-html="highlightedDisasm"></pre>
+                            </template>
+                            <template x-if="!lastDisasm">
+                                <p class="empty-state">
+                                    Run a conversion to see the intermediate AIL
+                                    representation.
+                                </p>
+                            </template>
+                        </div>
+                    </article>
+                </section>
+            </main>
+
+            <nav class="conversion-nav" aria-label="All conversions">
+                <template x-for="link in links" :key="link.href">
+                    <a :href="link.href" x-text="link.label"></a>
+                </template>
+            </nav>
+        </div>
+
+        <div
+            x-show="toast"
+            x-transition.opacity
+            class="toast"
+            :class="toastType === 'error' && 'is-error'"
+            x-text="toast"
+        ></div>
+        <script type="module" src="/src/main.js"></script>
+    </body>
+</html>

@@ -107,6 +107,25 @@ func TestAsmJSON(t *testing.T) {
 	}
 }
 
+func TestAsmSetFmtShorthand(t *testing.T) {
+	text := `SET_FMT json_object
+`
+	prog, err := Asm(text)
+	if err != nil {
+		t.Fatalf("Asm failed: %v", err)
+	}
+
+	if prog.Code[0].Op != SET_FMT {
+		t.Errorf("expected SET_FMT, got %s", prog.Code[0].Op)
+	}
+	if string(prog.Code[0].JSON) != `{"type":"json_object"}` {
+		t.Errorf("SET_FMT JSON = %s", prog.Code[0].JSON)
+	}
+	if got := strings.TrimSpace(prog.Disasm()); got != "SET_FMT json_object" {
+		t.Errorf("Disasm SET_FMT shorthand = %q", got)
+	}
+}
+
 func TestAsmSetMeta(t *testing.T) {
 	text := `SET_META key value
 `
@@ -236,7 +255,7 @@ func TestAsmInvalidOpcode(t *testing.T) {
 }
 
 // TestAsmDisasmBufferRoundTrip verifies that programs containing side-buffers
-// (IMG_REF, AUD_REF, TXT_REF) survive a Disasm → Asm cycle with their buffer
+// (*_REF) survive a Disasm → Asm cycle with their buffer
 // data intact.
 func TestAsmDisasmBufferRoundTrip(t *testing.T) {
 	imgData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A} // PNG magic

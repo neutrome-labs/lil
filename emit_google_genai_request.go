@@ -2,6 +2,7 @@ package ail
 
 import (
 	"encoding/json"
+	"strings"
 )
 
 // ─── Google GenAI Emitter ────────────────────────────────────────────────────
@@ -17,12 +18,16 @@ func (e *GoogleGenAIEmitter) EmitRequest(prog *Program) ([]byte, error) {
 	var systemParts []map[string]any
 
 	genConfig := make(map[string]any)
-	var thinkingConfig json.RawMessage
+	var formatConfig json.RawMessage
+	var safetySettings json.RawMessage
+	var thinkingMode string
+	var thinkingBudget int32
 
 	var currentRole string
 	var parts []any
 	inMessage := false
 	var lastMediaType string
+	var lastSourceType string
 
 	// Thinking block state
 	inThinking := false
@@ -49,8 +54,16 @@ func (e *GoogleGenAIEmitter) EmitRequest(prog *Program) ([]byte, error) {
 			genConfig["maxOutputTokens"] = inst.Int
 		case SET_STOP:
 			stopSeqs = append(stopSeqs, inst.Str)
-		case SET_THINK:
-			thinkingConfig = inst.JSON
+		case SET_REASON_MODE:
+			thinkingMode = inst.Str
+		case SET_REASON_BUDGET:
+			thinkingBudget = inst.Int
+		case SET_FMT:
+			formatConfig = inst.JSON
+		case SET_SAFETY:
+			safetySettings = inst.JSON
+		case SET_TOOL:
+			result["toolConfig"] = json.RawMessage(inst.JSON)
 
 		// Messages
 		case MSG_START:
@@ -60,6 +73,8 @@ func (e *GoogleGenAIEmitter) EmitRequest(prog *Program) ([]byte, error) {
 			parts = nil
 
 		case ROLE_SYS:
+			currentRole = "system"
+		case ROLE_DEV:
 			currentRole = "system"
 		case ROLE_USR:
 			currentRole = "user"
@@ -105,13 +120,10 @@ func (e *GoogleGenAIEmitter) EmitRequest(prog *Program) ([]byte, error) {
 				if mimeType == "" {
 					mimeType = "image/png"
 				}
+				sourceType := lastSourceType
 				lastMediaType = ""
-				parts = append(parts, map[string]any{
-					"inlineData": map[string]any{
-						"mimeType": mimeType,
-						"data":     data,
-					},
-				})
+				lastSourceType = ""
+				parts = append(parts, googleMediaPart(data, mimeType, sourceType))
 			}
 
 		case AUD_REF:
@@ -124,13 +136,47 @@ func (e *GoogleGenAIEmitter) EmitRequest(prog *Program) ([]byte, error) {
 				if mimeType == "" {
 					mimeType = "audio/wav"
 				}
+				sourceType := lastSourceType
 				lastMediaType = ""
-				parts = append(parts, map[string]any{
-					"inlineData": map[string]any{
-						"mimeType": mimeType,
-						"data":     data,
-					},
-				})
+				lastSourceType = ""
+				parts = append(parts, googleMediaPart(data, mimeType, sourceType))
+			}
+
+		case VID_REF:
+			if inMessage {
+				data := ""
+				if int(inst.Ref) < len(prog.Buffers) {
+					data = string(prog.Buffers[inst.Ref])
+				}
+				mimeType := lastMediaType
+				if mimeType == "" {
+					mimeType = "video/mp4"
+				}
+				sourceType := lastSourceType
+				lastMediaType = ""
+				lastSourceType = ""
+				parts = append(parts, googleMediaPart(data, mimeType, sourceType))
+			}
+
+		case FILE_REF:
+			if inMessage {
+				data := ""
+				if int(inst.Ref) < len(prog.Buffers) {
+					data = string(prog.Buffers[inst.Ref])
+				}
+				mimeType := lastMediaType
+				if mimeType == "" {
+					mimeType = "application/octet-stream"
+				}
+				sourceType := lastSourceType
+				lastMediaType = ""
+				lastSourceType = ""
+				parts = append(parts, googleMediaPart(data, mimeType, sourceType))
+			}
+
+		case PART_JSON:
+			if inMessage {
+				parts = append(parts, json.RawMessage(inst.JSON))
 			}
 
 		case CALL_START:
@@ -227,6 +273,18 @@ func (e *GoogleGenAIEmitter) EmitRequest(prog *Program) ([]byte, error) {
 				funcDecls[len(funcDecls)-1]["parameters"] = json.RawMessage(inst.JSON)
 			}
 
+		case DEF_RAW:
+			if inToolDefs {
+				if len(funcDecls) > 0 {
+					ec.MergeInto(funcDecls[len(funcDecls)-1])
+					tools = append(tools, map[string]any{
+						"functionDeclarations": funcDecls,
+					})
+					funcDecls = nil
+				}
+				tools = append(tools, map[string]any{"_raw": json.RawMessage(inst.JSON)})
+			}
+
 		case DEF_END:
 			if inToolDefs && len(funcDecls) > 0 {
 				ec.MergeInto(funcDecls[len(funcDecls)-1])
@@ -240,6 +298,8 @@ func (e *GoogleGenAIEmitter) EmitRequest(prog *Program) ([]byte, error) {
 		case SET_META:
 			if inst.Key == "media_type" {
 				lastMediaType = inst.Str
+			} else if inst.Key == "source_type" {
+				lastSourceType = inst.Str
 			} else if ec.Depth() > 0 {
 				ec.AddString(inst.Key, inst.Str)
 			} else {
@@ -248,6 +308,10 @@ func (e *GoogleGenAIEmitter) EmitRequest(prog *Program) ([]byte, error) {
 
 		// Extensions
 		case EXT_DATA:
+			if strings.HasPrefix(inst.Key, "generationConfig.") {
+				genConfig[strings.TrimPrefix(inst.Key, "generationConfig.")] = json.RawMessage(inst.JSON)
+				continue
+			}
 			ec.AddJSON(inst.Key, inst.JSON)
 		}
 	}
@@ -259,18 +323,80 @@ func (e *GoogleGenAIEmitter) EmitRequest(prog *Program) ([]byte, error) {
 		result["contents"] = contents
 	}
 	if tools != nil {
-		result["tools"] = tools
+		result["tools"] = unwrapRawObjects(tools)
 	}
 	if len(stopSeqs) > 0 {
 		genConfig["stopSequences"] = stopSeqs
 	}
-	if thinkingConfig != nil {
-		genConfig["thinking_config"] = json.RawMessage(thinkingConfig)
+	thinkingExtras := prefixedExtras(ec, "generationConfig.thinkingConfig")
+	if thinkingMode != "" || thinkingBudget > 0 || len(thinkingExtras) > 0 {
+		thinking := make(map[string]any)
+		for key, val := range thinkingExtras {
+			thinking[key] = val
+		}
+		if thinkingBudget > 0 {
+			thinking["thinking_budget"] = thinkingBudget
+		}
+		if thinkingMode != "" {
+			thinking["mode"] = thinkingMode
+		}
+		genConfig["thinking_config"] = thinking
+	}
+	if formatConfig != nil {
+		mergeGoogleFormat(genConfig, formatConfig)
 	}
 	if len(genConfig) > 0 {
 		result["generation_config"] = genConfig
 	}
+	if safetySettings != nil {
+		result["safety_settings"] = json.RawMessage(safetySettings)
+	}
 
 	ec.MergeInto(result)
 	return json.Marshal(result)
+}
+
+func googleMediaPart(data, mimeType, sourceType string) map[string]any {
+	if sourceType == "file_uri" || sourceType == "file_url" || sourceType == "url" {
+		return map[string]any{
+			"fileData": map[string]any{
+				"mimeType": mimeType,
+				"fileUri":  data,
+			},
+		}
+	}
+	return map[string]any{
+		"inlineData": map[string]any{
+			"mimeType": mimeType,
+			"data":     data,
+		},
+	}
+}
+
+func mergeGoogleFormat(genConfig map[string]any, raw json.RawMessage) {
+	var fmtObj map[string]json.RawMessage
+	if json.Unmarshal(raw, &fmtObj) != nil {
+		return
+	}
+	if typeRaw, ok := fmtObj["type"]; ok {
+		var typ string
+		if json.Unmarshal(typeRaw, &typ) == nil {
+			switch typ {
+			case "json_object":
+				genConfig["responseMimeType"] = "application/json"
+			case "text":
+				genConfig["responseMimeType"] = "text/plain"
+			case "json_schema":
+				genConfig["responseMimeType"] = "application/json"
+				if schemaRaw, ok := fmtObj["json_schema"]; ok {
+					genConfig["responseJsonSchema"] = json.RawMessage(schemaRaw)
+				}
+			}
+		}
+	}
+	for _, key := range []string{"responseMimeType", "response_mime_type", "responseSchema", "response_schema", "responseJsonSchema", "response_json_schema"} {
+		if val, ok := fmtObj[key]; ok {
+			genConfig[key] = json.RawMessage(val)
+		}
+	}
 }

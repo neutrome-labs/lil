@@ -59,6 +59,8 @@ func GetResponseEmitter(style Style) (ResponseEmitter, error) {
 	switch style {
 	case StyleChatCompletions:
 		return &ChatCompletionsEmitter{}, nil
+	case StyleResponses:
+		return &ResponsesEmitter{}, nil
 	case StyleAnthropic:
 		return &AnthropicEmitter{}, nil
 	case StyleGoogleGenAI:
@@ -89,6 +91,8 @@ func GetStreamChunkEmitter(style Style) (StreamChunkEmitter, error) {
 	switch style {
 	case StyleChatCompletions:
 		return &ChatCompletionsEmitter{}, nil
+	case StyleResponses:
+		return &ResponsesEmitter{}, nil
 	case StyleAnthropic:
 		return &AnthropicEmitter{}, nil
 	case StyleGoogleGenAI:

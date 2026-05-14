@@ -13,6 +13,10 @@ func TestBinaryRoundTrip(t *testing.T) {
 	orig.EmitInt(SET_MAX, 4096)
 	orig.Emit(SET_STREAM)
 	orig.Emit(MSG_START)
+	orig.Emit(ROLE_DEV)
+	orig.EmitJSON(PART_JSON, json.RawMessage(`{"type":"refusal","refusal":"no"}`))
+	orig.Emit(MSG_END)
+	orig.Emit(MSG_START)
 	orig.Emit(ROLE_USR)
 	orig.EmitString(TXT_CHUNK, "Hello world")
 
@@ -20,6 +24,13 @@ func TestBinaryRoundTrip(t *testing.T) {
 	imgRef := orig.AddBuffer([]byte("fake-image-data-base64"))
 	orig.EmitKeyVal(SET_META, "media_type", "image/jpeg")
 	orig.EmitRef(IMG_REF, imgRef)
+	fileRef := orig.AddBuffer([]byte("JVBERi0xLjQK"))
+	orig.EmitKeyVal(SET_META, "media_type", "application/pdf")
+	orig.EmitKeyVal(SET_META, "filename", "paper.pdf")
+	orig.EmitRef(FILE_REF, fileRef)
+	videoRef := orig.AddBuffer([]byte("AAAA-video-base64"))
+	orig.EmitKeyVal(SET_META, "media_type", "video/mp4")
+	orig.EmitRef(VID_REF, videoRef)
 
 	orig.Emit(MSG_END)
 
@@ -29,6 +40,7 @@ func TestBinaryRoundTrip(t *testing.T) {
 	orig.EmitString(DEF_DESC, "Get weather for a location")
 	schema := json.RawMessage(`{"type":"object","properties":{"location":{"type":"string"}}}`)
 	orig.EmitJSON(DEF_SCHEMA, schema)
+	orig.EmitJSON(DEF_RAW, json.RawMessage(`{"type":"file_search","vector_store_ids":["vs_123"]}`))
 	orig.Emit(DEF_END)
 
 	// Tool call
@@ -46,6 +58,11 @@ func TestBinaryRoundTrip(t *testing.T) {
 	// Meta and ext
 	orig.EmitKeyVal(SET_META, "user", "test-user")
 	orig.EmitJSON(SET_FMT, json.RawMessage(`{"type":"json_object"}`))
+	orig.EmitJSON(SET_SAFETY, json.RawMessage(`[{"category":"HARM_CATEGORY_HATE_SPEECH","threshold":"BLOCK_NONE"}]`))
+	orig.EmitJSON(SET_TOOL, json.RawMessage(`{"type":"function","function":{"name":"get_weather"}}`))
+	orig.EmitString(SET_REASON_EFFORT, "xhigh")
+	orig.EmitString(SET_REASON_MODE, "enabled")
+	orig.EmitInt(SET_REASON_BUDGET, 8192)
 
 	// Encode
 	var buf bytes.Buffer

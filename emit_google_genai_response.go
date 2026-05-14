@@ -70,6 +70,11 @@ func (e *GoogleGenAIEmitter) EmitResponse(prog *Program) ([]byte, error) {
 				parts = append(parts, map[string]any{"text": inst.Str})
 			}
 
+		case PART_JSON:
+			if inMessage {
+				parts = append(parts, rawMap(inst.JSON))
+			}
+
 		case CALL_START:
 			ec.Push()
 			if inMessage {

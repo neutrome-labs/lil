@@ -23,7 +23,11 @@ func (e *AnthropicEmitter) EmitRequest(prog *Program) ([]byte, error) {
 	needsToolResultWrap := false
 	var currentToolCallID string
 	var lastMediaType string
-	var thinkingConfig json.RawMessage
+	var lastSourceType string
+	var lastTitle string
+	var lastContext string
+	var thinkingMode string
+	var thinkingBudget int32
 
 	// Thinking block state
 	inThinking := false
@@ -53,8 +57,12 @@ func (e *AnthropicEmitter) EmitRequest(prog *Program) ([]byte, error) {
 		case SET_STREAM:
 			result["stream"] = true
 
-		case SET_THINK:
-			thinkingConfig = inst.JSON
+		case SET_REASON_MODE:
+			thinkingMode = inst.Str
+		case SET_REASON_BUDGET:
+			thinkingBudget = inst.Int
+		case SET_TOOL:
+			result["tool_choice"] = json.RawMessage(inst.JSON)
 
 		// Messages
 		case MSG_START:
@@ -65,8 +73,11 @@ func (e *AnthropicEmitter) EmitRequest(prog *Program) ([]byte, error) {
 			simpleText = ""
 			needsToolResultWrap = false
 			currentToolCallID = ""
+			lastMediaType, lastSourceType, lastTitle, lastContext = "", "", "", ""
 
 		case ROLE_SYS:
+			currentRole = "system"
+		case ROLE_DEV:
 			currentRole = "system"
 		case ROLE_USR:
 			currentRole = "user"
@@ -136,15 +147,56 @@ func (e *AnthropicEmitter) EmitRequest(prog *Program) ([]byte, error) {
 				if mediaType == "" {
 					mediaType = "image/png"
 				}
+				sourceType := lastSourceType
 				lastMediaType = ""
+				lastSourceType = ""
 				contentBlocks = append(contentBlocks, map[string]any{
-					"type": "image",
-					"source": map[string]any{
-						"type":       "base64",
-						"media_type": mediaType,
-						"data":       data,
-					},
+					"type":   "image",
+					"source": anthropicSource(data, mediaType, sourceType),
 				})
+			}
+
+		case FILE_REF, VID_REF:
+			if inMessage {
+				data := ""
+				if int(inst.Ref) < len(prog.Buffers) {
+					data = string(prog.Buffers[inst.Ref])
+				}
+				if simpleText != "" {
+					contentBlocks = append(contentBlocks, map[string]any{
+						"type": "text",
+						"text": simpleText,
+					})
+					simpleText = ""
+				}
+				mediaType := lastMediaType
+				if mediaType == "" {
+					mediaType = "application/pdf"
+				}
+				block := map[string]any{
+					"type":   "document",
+					"source": anthropicSource(data, mediaType, lastSourceType),
+				}
+				if lastTitle != "" {
+					block["title"] = lastTitle
+				}
+				if lastContext != "" {
+					block["context"] = lastContext
+				}
+				lastMediaType, lastSourceType, lastTitle, lastContext = "", "", "", ""
+				contentBlocks = append(contentBlocks, block)
+			}
+
+		case PART_JSON:
+			if inMessage {
+				if simpleText != "" {
+					contentBlocks = append(contentBlocks, map[string]any{
+						"type": "text",
+						"text": simpleText,
+					})
+					simpleText = ""
+				}
+				contentBlocks = append(contentBlocks, json.RawMessage(inst.JSON))
 			}
 
 		case CALL_START:
@@ -268,6 +320,16 @@ func (e *AnthropicEmitter) EmitRequest(prog *Program) ([]byte, error) {
 				currentTool["input_schema"] = json.RawMessage(inst.JSON)
 			}
 
+		case DEF_RAW:
+			if inToolDefs {
+				if currentTool != nil {
+					ec.MergeInto(currentTool)
+					tools = append(tools, currentTool)
+					currentTool = nil
+				}
+				tools = append(tools, map[string]any{"_raw": json.RawMessage(inst.JSON)})
+			}
+
 		case DEF_END:
 			if inToolDefs && currentTool != nil {
 				ec.MergeInto(currentTool)
@@ -281,6 +343,12 @@ func (e *AnthropicEmitter) EmitRequest(prog *Program) ([]byte, error) {
 		case SET_META:
 			if inst.Key == "media_type" {
 				lastMediaType = inst.Str
+			} else if inst.Key == "source_type" {
+				lastSourceType = inst.Str
+			} else if inst.Key == "title" {
+				lastTitle = inst.Str
+			} else if inst.Key == "context" {
+				lastContext = inst.Str
 			} else if ec.Depth() > 0 {
 				ec.AddString(inst.Key, inst.Str)
 			} else {
@@ -304,15 +372,50 @@ func (e *AnthropicEmitter) EmitRequest(prog *Program) ([]byte, error) {
 		result["messages"] = messages
 	}
 	if tools != nil {
-		result["tools"] = tools
+		result["tools"] = unwrapRawObjects(tools)
 	}
 	if len(stopSeqs) > 0 {
 		result["stop_sequences"] = stopSeqs
 	}
-	if thinkingConfig != nil {
-		result["thinking"] = json.RawMessage(thinkingConfig)
+	thinkingExtras := prefixedExtras(ec, "thinking")
+	if thinkingMode != "" || thinkingBudget > 0 || len(thinkingExtras) > 0 {
+		thinking := make(map[string]any)
+		for key, val := range thinkingExtras {
+			thinking[key] = val
+		}
+		if thinkingMode != "" {
+			thinking["type"] = thinkingMode
+		}
+		if thinkingBudget > 0 {
+			thinking["budget_tokens"] = thinkingBudget
+			if thinkingMode == "" {
+				thinking["type"] = "enabled"
+			}
+		}
+		result["thinking"] = thinking
 	}
 
 	ec.MergeInto(result)
 	return json.Marshal(result)
+}
+
+func anthropicSource(data, mediaType, sourceType string) map[string]any {
+	switch sourceType {
+	case "url", "file_url":
+		return map[string]any{
+			"type": "url",
+			"url":  data,
+		}
+	case "file_id":
+		return map[string]any{
+			"type":    "file",
+			"file_id": data,
+		}
+	default:
+		return map[string]any{
+			"type":       "base64",
+			"media_type": mediaType,
+			"data":       data,
+		}
+	}
 }

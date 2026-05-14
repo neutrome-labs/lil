@@ -97,14 +97,17 @@ func (p *ResponsesParser) ParseResponse(body []byte) (*Program, error) {
 					prog.Emit(ROLE_AST)
 					// Content is an array of content parts
 					if contentRaw, ok := itemMap["content"]; ok {
-						var parts []struct {
-							Type string `json:"type"`
-							Text string `json:"text,omitempty"`
-						}
+						var parts []json.RawMessage
 						if json.Unmarshal(contentRaw, &parts) == nil {
-							for _, part := range parts {
-								if part.Type == "output_text" || part.Type == "text" {
+							for _, rawPart := range parts {
+								var part struct {
+									Type string `json:"type"`
+									Text string `json:"text,omitempty"`
+								}
+								if json.Unmarshal(rawPart, &part) == nil && (part.Type == "output_text" || part.Type == "text") {
 									prog.EmitString(TXT_CHUNK, part.Text)
+								} else {
+									prog.EmitJSON(PART_JSON, rawPart)
 								}
 							}
 						}
@@ -151,6 +154,8 @@ func (p *ResponsesParser) ParseResponse(body []byte) (*Program, error) {
 					prog.Emit(CALL_END)
 					prog.EmitString(RESP_DONE, "tool_calls")
 					prog.Emit(MSG_END)
+				default:
+					prog.EmitJSON(PART_JSON, ri)
 				}
 			}
 		}

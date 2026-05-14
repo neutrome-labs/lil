@@ -16,7 +16,7 @@ Supported providers:
 | Provider | Style Constant | Request Parse | Request Emit | Response Parse | Response Emit | Stream Parse | Stream Emit |
 |---|---|---|---|---|---|---|---|
 | OpenAI Chat Completions | `StyleChatCompletions` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| OpenAI Responses | `StyleResponses` | ✅ | ✅ | ✅ | — | ✅ | — |
+| OpenAI Responses | `StyleResponses` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Anthropic Messages | `StyleAnthropic` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Google GenAI | `StyleGoogleGenAI` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
@@ -79,6 +79,183 @@ fmt.Println(prog.Disasm())
 emitter, _ := ail.GetEmitter(ail.StyleAnthropic)
 out, _ := emitter.EmitRequest(prog)
 ```
+
+### Attach manipulations to conversion flows
+
+```go
+import (
+    "context"
+    "time"
+
+    "github.com/neutrome-labs/ail"
+    "github.com/neutrome-labs/ail/manip"
+    "github.com/neutrome-labs/ail/manip/kvtools"
+    "github.com/neutrome-labs/ail/manip/slwin"
+)
+
+out, err := manip.ConvertRequest(
+    body,
+    ail.StyleChatCompletions,
+    ail.StyleAnthropic,
+    slwin.New(slwin.WithKeepStart(1), slwin.WithKeepEnd(10)),
+)
+
+converter, err := manip.NewRequestConverter(
+    ail.StyleChatCompletions,
+    ail.StyleAnthropic,
+    slwin.FromParams("15:3"),
+)
+out, err = converter.Convert(body)
+
+// Router-compatible parameter syntax is supported too:
+// "" -> keep 1 from start and 10 from end
+// "15" -> keep 1 from start and 15 from end
+// "15:3" -> keep 3 from start and 15 from end
+window := slwin.FromParams("15:3")
+emitter := manip.AttachEmitter(&ail.AnthropicEmitter{}, window)
+out, err = emitter.EmitRequest(prog)
+```
+
+### Cache old tool results with KVTools
+
+```go
+toolCache := kvtools.New(
+    kvtools.WithStore(myStore), // any kvtools.Store implementation
+    kvtools.WithTTL(30*time.Minute),
+)
+
+ctx := kvtools.ContextWithScope(context.Background(), traceID)
+converter, err := manip.NewRequestConverter(
+    ail.StyleChatCompletions,
+    ail.StyleAnthropic,
+    toolCache,
+)
+out, err := converter.ConvertContext(ctx, body)
+```
+
+`kvtools` caches older completed tool-result payloads, strips their
+`RESULT_DATA` from the prompt, and injects a `get_tool_result` tool definition.
+Consumers can serve that tool from any inference loop:
+
+```go
+result, handled, err := toolCache.HandleToolCall(ctx, name, argsJSON)
+```
+
+Cache backends only need this interface:
+
+```go
+type Store interface {
+    Get(ctx context.Context, key string) (string, error)
+    Set(ctx context.Context, key, value string, ttl time.Duration) error
+    Delete(ctx context.Context, key string) error
+}
+```
+
+### Compose sequential requests
+
+AIL can represent multiple executable requests in one program. The consumer app
+materializes and executes each request in order, captures its response, and uses
+that captured output to resolve later `SUB_CONTENT` or `SUB_REASON` opcodes.
+Parsed responses can also be stored as `RESP_START`...`RESP_END` blocks and
+loaded with `CaptureResponseOutputs`.
+
+```asm
+REQ_START smart
+  REQ_YIELD none
+  SET_MODEL smart-model
+  MSG_START
+    ROLE_USR
+    TXT_CHUNK Customer prompt
+  MSG_END
+REQ_END
+
+REQ_START localize
+  REQ_YIELD content
+  SET_MODEL localizer-model
+  SET_STREAM
+  MSG_START
+    ROLE_USR
+    TXT_CHUNK Localize this:
+    SUB_CONTENT smart.content
+  MSG_END
+REQ_END
+```
+
+```go
+outputs := map[string]ail.RequestOutput{}
+for _, span := range prog.Requests() {
+    unit, err := prog.MaterializeRequest(span, outputs)
+    if err != nil { return err }
+
+    body, err := emitter.EmitRequest(unit.Program)
+    if err != nil { return err }
+
+    responseProgram := callModelAndParse(body)
+    outputs[unit.ID] = ail.CaptureRequestOutput(responseProgram)
+
+    switch unit.Yield {
+    case ail.YieldContent:
+        write(outputs[unit.ID].Content)
+    case ail.YieldReasoning:
+        write(outputs[unit.ID].Reasoning)
+    case ail.YieldBoth:
+        write(outputs[unit.ID].Reasoning + outputs[unit.ID].Content)
+    }
+}
+```
+
+The `manip/chain` package appends a follow-up request:
+
+```go
+prog, err = chain.New(
+    "Suggest next steps.",
+    chain.WithModel("suggestion-model"),
+).Apply(prog)
+```
+
+### Runtime stream transforms
+
+Static manips rewrite one AIL program. Runtime transforms operate on streams of
+AIL chunks and can call models while data is flowing. The shared `transform`
+package defines the channel contracts:
+
+```go
+type Executor interface {
+    Execute(ctx context.Context, req *ail.RequestUnit) transform.Stream
+}
+
+type RuntimeTransform interface {
+    Apply(ctx context.Context, in transform.Stream) transform.Stream
+}
+```
+
+`transform/chain` buffers selected source output, sends it to a chained
+executor, and emits the chained response as replacement stream chunks. This is
+useful for replacing raw model reasoning with short captions from a smaller
+model:
+
+```go
+captioner := transformchain.New(
+    transformchain.WithExecutor(smallModel),
+    transformchain.WithPrompt("Write a short caption for this reasoning segment."),
+    transformchain.WithModel("caption-model"),
+    transformchain.WithSourceField(transformchain.SourceReasoning),
+    transformchain.WithTargetChannel(transformchain.TargetReasoning),
+    transformchain.WithFlushEveryChars(800),
+)
+
+out := captioner.Apply(ctx, sourceStream)
+for ev := range out {
+    if ev.Err != nil { return ev.Err }
+    emitChunk(ev.Program)
+}
+```
+
+By default, selected source chunks are stripped, so raw reasoning is not emitted.
+Use `WithIncludeSource(true)` when the chained output should augment rather than
+replace the source stream. Shared helpers such as `transform.FanOut`,
+`transform.Merge`, and `transform.ParallelMap` are available for future runtime
+transforms.
 
 ### Pass programs through context
 
@@ -187,7 +364,7 @@ type Instruction struct {
     Int  int32            // SET_MAX
     JSON json.RawMessage  // DEF_SCHEMA, CALL_ARGS, USAGE, EXT_DATA, STREAM_TOOL_DELTA
     Key  string           // SET_META, EXT_DATA (key part)
-    Ref  uint32           // IMG_REF, AUD_REF, TXT_REF
+    Ref  uint32           // IMG_REF, AUD_REF, TXT_REF, FILE_REF, VID_REF
 }
 ```
 
@@ -230,239 +407,7 @@ outputs, _ := conv.PushProgram(prog)
 final, _ := conv.Flush()
 ```
 
-## Binary Encoding
-
-Programs can be serialized to a compact binary format for storage or wire transfer.
-
-### Wire Layout
-
-```
-┌────────────────┬─────────┬──────────────────────────────────────┬──────────────┐
-│  Magic (4B)    │ Ver (1B)│  Side-Buffers                        │ Instructions │
-│  "AIL\x00"    │  0x01   │  [count][len₀][data₀][len₁][data₁]… │ [op][args]…  │
-└────────────────┴─────────┴──────────────────────────────────────┴──────────────┘
-```
-
-### Argument Types
-
-| Type     | Encoding                                       |
-|----------|------------------------------------------------|
-| -        | No argument (opcode only)                      |
-| String   | 4-byte little-endian length prefix + UTF-8 bytes |
-| Float    | 8-byte IEEE 754 double (little-endian)         |
-| Int      | 4-byte little-endian signed integer            |
-| JSON     | 4-byte LE length prefix + raw JSON bytes       |
-| RefID    | 4-byte LE buffer index                         |
-| Key,Val  | Two length-prefixed strings back-to-back       |
-| Key,JSON | Length-prefixed key string + length-prefixed JSON |
-
-### Encode / Decode
-
-```go
-// Encode to binary
-var buf bytes.Buffer
-prog.Encode(&buf)
-
-// Decode from binary
-prog, err := ail.Decode(&buf)
-```
-
-## Opcode Table
-
-### Structure (0x10–0x1F)
-
-| Mnemonic    | Byte   | Args | Description                              |
-|-------------|--------|------|------------------------------------------|
-| `MSG_START` | `0x10` | -    | Begin a message block                    |
-| `MSG_END`   | `0x11` | -    | End a message block                      |
-| `ROLE_SYS`  | `0x12` | -    | Set role to system                       |
-| `ROLE_USR`  | `0x13` | -    | Set role to user                         |
-| `ROLE_AST`  | `0x14` | -    | Set role to assistant                    |
-| `ROLE_TOOL` | `0x15` | -    | Set role to tool/function result         |
-
-### Content (0x20–0x2F)
-
-| Mnemonic    | Byte   | Args   | Description                            |
-|-------------|--------|--------|----------------------------------------|
-| `TXT_CHUNK` | `0x20` | String | Text content segment                   |
-| `IMG_REF`   | `0x21` | RefID  | Reference to image in side-buffer      |
-| `AUD_REF`   | `0x22` | RefID  | Reference to audio in side-buffer      |
-| `TXT_REF`   | `0x23` | RefID  | Reference to large text in side-buffer |
-
-### Tool Definition (0x30–0x3F)
-
-| Mnemonic    | Byte   | Args   | Description                            |
-|-------------|--------|--------|----------------------------------------|
-| `DEF_START` | `0x30` | -      | Begin tool definitions block           |
-| `DEF_NAME`  | `0x31` | String | Tool function name                     |
-| `DEF_DESC`  | `0x32` | String | Tool function description              |
-| `DEF_SCHEMA`| `0x33` | JSON   | Tool parameter schema (JSON)           |
-| `DEF_END`   | `0x34` | -      | End tool definitions block             |
-
-### Tool Call (0x40–0x4F)
-
-| Mnemonic     | Byte   | Args   | Description                           |
-|--------------|--------|--------|---------------------------------------|
-| `CALL_START` | `0x40` | String | Begin tool call (call ID)             |
-| `CALL_NAME`  | `0x41` | String | Function name being called            |
-| `CALL_ARGS`  | `0x42` | JSON   | Function arguments (JSON)             |
-| `CALL_END`   | `0x43` | -      | End tool call                         |
-
-### Tool Result (0x48–0x4A)
-
-| Mnemonic      | Byte   | Args   | Description                          |
-|---------------|--------|--------|--------------------------------------|
-| `RESULT_START`| `0x48` | String | Begin tool result (call ID)          |
-| `RESULT_DATA` | `0x49` | String | Tool result content                  |
-| `RESULT_END`  | `0x4A` | -      | End tool result                      |
-
-### Response Metadata (0x50–0x5F)
-
-| Mnemonic      | Byte   | Args   | Description                          |
-|---------------|--------|--------|--------------------------------------|
-| `RESP_ID`     | `0x50` | String | Response ID                          |
-| `RESP_MODEL`  | `0x51` | String | Model that generated the response    |
-| `RESP_DONE`   | `0x52` | String | Finish reason (stop/tool_calls/length)|
-| `USAGE`       | `0x53` | JSON   | Token usage statistics               |
-
-### Stream Events (0x60–0x6F)
-
-| Mnemonic            | Byte   | Args   | Description                    |
-|---------------------|--------|--------|--------------------------------|
-| `STREAM_START`      | `0x60` | -      | Begin streaming response       |
-| `STREAM_DELTA`      | `0x61` | String | Text delta chunk               |
-| `STREAM_TOOL_DELTA` | `0x62` | JSON   | Tool call argument delta       |
-| `STREAM_END`        | `0x63` | -      | End streaming response         |
-
-### Configuration (0xF0–0xFF)
-
-| Mnemonic    | Byte   | Args     | Description                          |
-|-------------|--------|----------|--------------------------------------|
-| `SET_MODEL` | `0xF0` | String   | Set target model name                |
-| `SET_TEMP`  | `0xF1` | Float    | Set temperature                      |
-| `SET_TOPP`  | `0xF2` | Float    | Set top_p                            |
-| `SET_STOP`  | `0xF3` | String   | Add stop sequence                    |
-| `SET_MAX`   | `0xF4` | Int      | Set max tokens                       |
-| `SET_STREAM`| `0xF5` | -        | Enable streaming mode                |
-| `EXT_DATA`  | `0xFE` | Key,JSON | Provider-specific extension data     |
-| `SET_META`  | `0xFF` | Key,Val  | Set arbitrary metadata key=value     |
-
-## Provider Mapping Details
-
-### OpenAI Chat Completions
-
-| AIL Opcode   | Chat Completions Equivalent                    |
-|--------------|------------------------------------------------|
-| `ROLE_SYS`   | `"role": "system"` (also parses `"developer"`) |
-| `ROLE_USR`   | `"role": "user"`                               |
-| `ROLE_AST`   | `"role": "assistant"`                          |
-| `ROLE_TOOL`  | `"role": "tool"` + `tool_call_id`              |
-| `TXT_CHUNK`  | `"content": "..."` (string or content parts)   |
-| `IMG_REF`    | `image_url` content part                       |
-| `AUD_REF`    | `input_audio` content part                     |
-| `DEF_*`      | `"tools": [{ "type": "function", "function": {...} }]` |
-| `CALL_*`     | `tool_calls` in assistant message              |
-| `SET_MODEL`  | `"model": "..."`                               |
-| `SET_TEMP`   | `"temperature": ...`                           |
-| `SET_MAX`    | `"max_tokens"` or `"max_completion_tokens"`    |
-| `SET_STREAM` | `"stream": true` + `stream_options: {include_usage: true}` |
-| `SET_META`   | `"metadata": {...}` (except `media_type` key)  |
-| `EXT_DATA`   | Any remaining top-level fields passed through  |
-
-### OpenAI Responses
-
-| AIL Opcode   | Responses API Equivalent                       |
-|--------------|------------------------------------------------|
-| `ROLE_SYS`   | Top-level `"instructions"` field               |
-| `ROLE_USR`   | `"role": "user"` in `input[]`                  |
-| `ROLE_AST`   | `"role": "assistant"` in `input[]`             |
-| `TXT_CHUNK`  | `{"type": "input_text", "text": "..."}`        |
-| `DEF_*`      | `tools[]` with flat structure (`name` at top level, no `function` wrapper) |
-| `CALL_*`     | `function_call` output item                    |
-| `SET_MODEL`  | `"model": "..."`                               |
-| `SET_MAX`    | `"max_output_tokens": ...`                     |
-
-### Anthropic Messages
-
-| AIL Opcode   | Anthropic Equivalent                           |
-|--------------|------------------------------------------------|
-| `ROLE_SYS`   | Top-level `"system"` parameter                 |
-| `ROLE_USR`   | `"role": "user"`                               |
-| `ROLE_AST`   | `"role": "assistant"`                          |
-| `ROLE_TOOL`  | `"role": "user"` + `tool_result` content block |
-| `TXT_CHUNK`  | `{"type": "text", "text": "..."}`              |
-| `IMG_REF`    | `{"type": "image", "source": {"type": "base64", ...}}` |
-| `DEF_SCHEMA` | `"input_schema"` (not `"parameters"`)          |
-| `SET_MAX`    | `"max_tokens": ...` (required by Anthropic)    |
-| `SET_STOP`   | `"stop_sequences": [...]`                      |
-| `SET_META`   | `"metadata": {...}` (except `media_type` key)  |
-| `RESP_DONE`  | Stop reason mapped: `stop`↔`end_turn`, `tool_calls`↔`tool_use`, `length`↔`max_tokens` |
-
-### Google GenAI
-
-| AIL Opcode   | Google GenAI Equivalent                        |
-|--------------|------------------------------------------------|
-| `ROLE_SYS`   | `"system_instruction": {"parts": [...]}`       |
-| `ROLE_USR`   | `"role": "user"`                               |
-| `ROLE_AST`   | `"role": "model"`                              |
-| `ROLE_TOOL`  | `"role": "function"` + `functionResponse` part |
-| `TXT_CHUNK`  | `{"text": "..."}` in parts                    |
-| `IMG_REF`    | `{"inlineData": {"mimeType": "...", "data": "..."}}` |
-| `DEF_*`      | `tools[].function_declarations[]`              |
-| `CALL_*`     | `functionCall` part                            |
-| `SET_TEMP`   | `generation_config.temperature`                 |
-| `SET_TOPP`   | `generation_config.topP`                        |
-| `SET_MAX`    | `generation_config.maxOutputTokens`             |
-| `SET_STOP`   | `generation_config.stopSequences`               |
-| `RESP_DONE`  | Finish reason mapped: `stop`↔`STOP`, `length`↔`MAX_TOKENS` |
-
-## Theory of Operation
-
-### Incompatibility Handling
-
-The power of AIL lies in how each **Emitter** interprets the same instruction stream differently to match the target provider's conventions:
-
-#### System Prompt Placement
-
-```
-Input: MSG_START → ROLE_SYS → TXT_CHUNK "Be polite" → MSG_END
-
-OpenAI Emitter:    {"role": "system", "content": "Be polite"} in messages[]
-Anthropic Emitter: "system": "Be polite" as top-level field
-Google Emitter:    "system_instruction": {"parts": [{"text": "Be polite"}]}
-```
-
-#### Tool Results
-
-```
-Input: MSG_START → ROLE_TOOL → RESULT_START "call_123" → RESULT_DATA "OK" → RESULT_END → MSG_END
-
-OpenAI:    {"role": "tool", "tool_call_id": "call_123", "content": "OK"}
-Anthropic: {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_123", "content": "OK"}]}
-Google:    {"role": "function", "parts": [{"functionResponse": {"name": "...", "response": {...}}}]}
-```
-
-#### Extension Data Passthrough
-
-```
-Input: EXT_DATA "seed" 42
-
-OpenAI Emitter:    Adds "seed": 42 to request body
-Anthropic Emitter: Passes through (provider may ignore unsupported fields)
-```
-
-#### Response Format (SET_FMT)
-
-`SET_FMT` is a first-class opcode that each emitter maps to the provider's native format field:
-
-```
-Input: SET_FMT {"type":"json_object"}
-
-Chat Completions Emitter:  "response_format": {"type":"json_object"}
-Responses API Emitter:     "text": {"format": {"type":"json_object"}}
-```
-
-### Stream Conversion Edge Cases
+## Stream Conversion Edge Cases
 
 The `StreamConverter` handles several structural mismatches:
 
@@ -484,38 +429,8 @@ prefix.Emit(ail.MSG_END)
 result := prefix.Append(prog) // buffer refs are re-indexed automatically
 ```
 
-## Assembly Notation
+## Reference Docs
 
-`Program.Disasm()` produces a human-readable assembly listing with automatic indentation inside block opcodes:
-
-```asm
-SET_MODEL gpt-4o
-SET_TEMP 0.1000
-MSG_START
-  ROLE_SYS
-  TXT_CHUNK Be brief.
-MSG_END
-MSG_START
-  ROLE_USR
-  TXT_CHUNK Hello
-MSG_END
-SET_STREAM
-DEF_START
-  DEF_NAME get_weather
-  DEF_DESC Get current weather for a location
-  DEF_SCHEMA {"type":"object","properties":{"location":{"type":"string"}}}
-DEF_END
-```
-
-Comments prefixed with `;` can appear in assembly text and are silently ignored by the parser.
-
-### Binary Layout Example
-
-`{"role": "user", "content": "Hello"}` in AIL binary:
-
-```
-10                              ; MSG_START
-13                              ; ROLE_USR
-20 05 00 00 00 48 65 6C 6C 6F  ; TXT_CHUNK len=5 "Hello"
-11                              ; MSG_END
-```
+- [Opcode reference](docs/opcodes.md)
+- [Binary encoding and assembly notation](docs/binary.md)
+- [Provider mapping details](docs/provider-mapping.md)

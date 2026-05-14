@@ -76,8 +76,12 @@ func (p *AnthropicParser) ParseRequest(body []byte) (*Program, error) {
 
 	// Thinking configuration
 	if thinkRaw, ok := raw["thinking"]; ok {
-		prog.EmitJSON(SET_THINK, thinkRaw)
+		emitThinkingConfig(prog, thinkRaw, "thinking")
 		delete(raw, "thinking")
+	}
+	if tcRaw, ok := raw["tool_choice"]; ok {
+		prog.EmitJSON(SET_TOOL, tcRaw)
+		delete(raw, "tool_choice")
 	}
 
 	// System (top-level in Anthropic, not in messages)
@@ -100,6 +104,10 @@ func (p *AnthropicParser) ParseRequest(body []byte) (*Program, error) {
 			for _, rt := range rawTools {
 				var toolMap map[string]json.RawMessage
 				if json.Unmarshal(rt, &toolMap) != nil {
+					continue
+				}
+				if _, ok := toolMap["input_schema"]; !ok {
+					prog.EmitJSON(DEF_RAW, rt)
 					continue
 				}
 
@@ -208,13 +216,69 @@ func (p *AnthropicParser) ParseRequest(body []byte) (*Program, error) {
 											Type      string `json:"type"`
 											MediaType string `json:"media_type"`
 											Data      string `json:"data"`
+											URL       string `json:"url"`
+											FileID    string `json:"file_id"`
 										}
 										if json.Unmarshal(sourceRaw, &source) == nil {
-											ref := prog.AddBuffer([]byte(source.Data))
+											data := source.Data
+											sourceType := "base64"
+											if data == "" && source.URL != "" {
+												data = source.URL
+												sourceType = "url"
+											}
+											if data == "" && source.FileID != "" {
+												data = source.FileID
+												sourceType = "file_id"
+											}
+											ref := prog.AddBuffer([]byte(data))
 											if source.MediaType != "" {
 												prog.EmitKeyVal(SET_META, "media_type", source.MediaType)
 											}
+											prog.EmitKeyVal(SET_META, "source_type", sourceType)
 											prog.EmitRef(IMG_REF, ref)
+										}
+									}
+									delete(blockMap, "source")
+								case "document":
+									if titleRaw, ok := blockMap["title"]; ok {
+										var title string
+										if json.Unmarshal(titleRaw, &title) == nil && title != "" {
+											prog.EmitKeyVal(SET_META, "title", title)
+										}
+										delete(blockMap, "title")
+									}
+									if contextRaw, ok := blockMap["context"]; ok {
+										var context string
+										if json.Unmarshal(contextRaw, &context) == nil && context != "" {
+											prog.EmitKeyVal(SET_META, "context", context)
+										}
+										delete(blockMap, "context")
+									}
+									if sourceRaw, ok := blockMap["source"]; ok {
+										var source struct {
+											Type      string `json:"type"`
+											MediaType string `json:"media_type"`
+											Data      string `json:"data"`
+											URL       string `json:"url"`
+											FileID    string `json:"file_id"`
+										}
+										if json.Unmarshal(sourceRaw, &source) == nil {
+											data := source.Data
+											sourceType := "base64"
+											if data == "" && source.URL != "" {
+												data = source.URL
+												sourceType = "url"
+											}
+											if data == "" && source.FileID != "" {
+												data = source.FileID
+												sourceType = "file_id"
+											}
+											ref := prog.AddBuffer([]byte(data))
+											if source.MediaType != "" {
+												prog.EmitKeyVal(SET_META, "media_type", source.MediaType)
+											}
+											prog.EmitKeyVal(SET_META, "source_type", sourceType)
+											prog.EmitRef(FILE_REF, ref)
 										}
 									}
 									delete(blockMap, "source")
@@ -264,6 +328,9 @@ func (p *AnthropicParser) ParseRequest(body []byte) (*Program, error) {
 									}
 									prog.Emit(RESULT_END)
 									continue // skip common tail
+								default:
+									prog.EmitJSON(PART_JSON, rb)
+									continue
 								}
 								// Common tail: passthrough remaining block-level fields
 								delete(blockMap, "type")

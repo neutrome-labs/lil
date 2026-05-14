@@ -114,6 +114,8 @@ func (p *AnthropicParser) ParseResponse(body []byte) (*Program, error) {
 						prog.EmitKeyJSON(EXT_DATA, key, val)
 					}
 					prog.Emit(CALL_END)
+				default:
+					prog.EmitJSON(PART_JSON, rb)
 				}
 			}
 		}

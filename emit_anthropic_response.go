@@ -86,6 +86,18 @@ func (e *AnthropicEmitter) EmitResponse(prog *Program) ([]byte, error) {
 			}
 			inThinking = false
 
+		case PART_JSON:
+			if inMessage {
+				if textContent != "" {
+					contentBlocks = append(contentBlocks, map[string]any{
+						"type": "text",
+						"text": textContent,
+					})
+					textContent = ""
+				}
+				contentBlocks = append(contentBlocks, rawMap(inst.JSON))
+			}
+
 		case CALL_START:
 			ec.Push()
 			if inMessage {

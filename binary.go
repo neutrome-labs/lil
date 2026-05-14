@@ -46,17 +46,19 @@ func (p *Program) Encode(w io.Writer) error {
 		}
 		switch inst.Op {
 		// No-arg opcodes
-		case MSG_START, MSG_END, ROLE_SYS, ROLE_USR, ROLE_AST, ROLE_TOOL,
+		case REQ_END, RESP_END,
+			MSG_START, MSG_END, ROLE_SYS, ROLE_USR, ROLE_AST, ROLE_TOOL, ROLE_DEV,
 			DEF_START, DEF_END, CALL_END, RESULT_END,
 			SET_STREAM, STREAM_START, STREAM_END,
 			THINK_START, THINK_END:
 			// nothing extra
 
 		// String arg
-		case TXT_CHUNK, DEF_NAME, DEF_DESC, CALL_START, CALL_NAME,
+		case REQ_START, REQ_YIELD, SUB_CONTENT, SUB_REASON, RESP_START,
+			TXT_CHUNK, DEF_NAME, DEF_DESC, CALL_START, CALL_NAME,
 			RESULT_START, RESULT_DATA, RESP_ID, RESP_MODEL, RESP_DONE,
 			SET_MODEL, SET_STOP, STREAM_DELTA,
-			THINK_CHUNK, STREAM_THINK_DELTA:
+			THINK_CHUNK, STREAM_THINK_DELTA, SET_REASON_EFFORT, SET_REASON_MODE:
 			if err := writeString(w, inst.Str); err != nil {
 				return err
 			}
@@ -68,19 +70,19 @@ func (p *Program) Encode(w io.Writer) error {
 			}
 
 		// Int arg
-		case SET_MAX:
+		case SET_MAX, SET_REASON_BUDGET:
 			if err := writeInt32(w, inst.Int); err != nil {
 				return err
 			}
 
 		// JSON arg
-		case DEF_SCHEMA, CALL_ARGS, USAGE, STREAM_TOOL_DELTA, SET_THINK, SET_FMT:
+		case PART_JSON, DEF_SCHEMA, DEF_RAW, CALL_ARGS, USAGE, STREAM_TOOL_DELTA, SET_FMT, SET_SAFETY, SET_TOOL:
 			if err := writeBytes(w, inst.JSON); err != nil {
 				return err
 			}
 
 		// RefID arg
-		case IMG_REF, AUD_REF, TXT_REF, THINK_REF:
+		case IMG_REF, AUD_REF, TXT_REF, FILE_REF, VID_REF, THINK_REF:
 			if err := writeUint32(w, inst.Ref); err != nil {
 				return err
 			}
@@ -158,17 +160,19 @@ func Decode(r io.Reader) (*Program, error) {
 
 		switch op {
 		// No-arg opcodes
-		case MSG_START, MSG_END, ROLE_SYS, ROLE_USR, ROLE_AST, ROLE_TOOL,
+		case REQ_END, RESP_END,
+			MSG_START, MSG_END, ROLE_SYS, ROLE_USR, ROLE_AST, ROLE_TOOL, ROLE_DEV,
 			DEF_START, DEF_END, CALL_END, RESULT_END,
 			SET_STREAM, STREAM_START, STREAM_END,
 			THINK_START, THINK_END:
 			// nothing
 
 		// String arg
-		case TXT_CHUNK, DEF_NAME, DEF_DESC, CALL_START, CALL_NAME,
+		case REQ_START, REQ_YIELD, SUB_CONTENT, SUB_REASON, RESP_START,
+			TXT_CHUNK, DEF_NAME, DEF_DESC, CALL_START, CALL_NAME,
 			RESULT_START, RESULT_DATA, RESP_ID, RESP_MODEL, RESP_DONE,
 			SET_MODEL, SET_STOP, STREAM_DELTA,
-			THINK_CHUNK, STREAM_THINK_DELTA:
+			THINK_CHUNK, STREAM_THINK_DELTA, SET_REASON_EFFORT, SET_REASON_MODE:
 			s, err := readString(r)
 			if err != nil {
 				return nil, fmt.Errorf("ail.Decode %s: %w", op.Name(), err)
@@ -184,7 +188,7 @@ func Decode(r io.Reader) (*Program, error) {
 			inst.Num = f
 
 		// Int arg
-		case SET_MAX:
+		case SET_MAX, SET_REASON_BUDGET:
 			i, err := readInt32(r)
 			if err != nil {
 				return nil, fmt.Errorf("ail.Decode %s: %w", op.Name(), err)
@@ -192,7 +196,7 @@ func Decode(r io.Reader) (*Program, error) {
 			inst.Int = i
 
 		// JSON arg
-		case DEF_SCHEMA, CALL_ARGS, USAGE, STREAM_TOOL_DELTA, SET_THINK, SET_FMT:
+		case PART_JSON, DEF_SCHEMA, DEF_RAW, CALL_ARGS, USAGE, STREAM_TOOL_DELTA, SET_FMT, SET_SAFETY, SET_TOOL:
 			b, err := readBytes(r)
 			if err != nil {
 				return nil, fmt.Errorf("ail.Decode %s: %w", op.Name(), err)
@@ -200,7 +204,7 @@ func Decode(r io.Reader) (*Program, error) {
 			inst.JSON = json.RawMessage(b)
 
 		// RefID
-		case IMG_REF, AUD_REF, TXT_REF, THINK_REF:
+		case IMG_REF, AUD_REF, TXT_REF, FILE_REF, VID_REF, THINK_REF:
 			ref, err := readUint32(r)
 			if err != nil {
 				return nil, fmt.Errorf("ail.Decode %s: %w", op.Name(), err)

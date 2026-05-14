@@ -13,6 +13,8 @@ func (e *ChatCompletionsEmitter) EmitResponse(prog *Program) ([]byte, error) {
 	var currentChoice map[string]any
 	var currentMessage map[string]any
 	var textContent string
+	var contentParts []any
+	var hasRawContentParts bool
 	var toolCalls []map[string]any
 	ec := NewExtrasCollector()
 	inMessage := false
@@ -36,6 +38,8 @@ func (e *ChatCompletionsEmitter) EmitResponse(prog *Program) ([]byte, error) {
 			currentChoice = map[string]any{"index": len(choices)}
 			currentMessage = make(map[string]any)
 			textContent = ""
+			contentParts = nil
+			hasRawContentParts = false
 			toolCalls = nil
 			reasoningContent = ""
 			inThinking = false
@@ -47,7 +51,21 @@ func (e *ChatCompletionsEmitter) EmitResponse(prog *Program) ([]byte, error) {
 
 		case TXT_CHUNK:
 			if inMessage {
-				textContent += inst.Str
+				if hasRawContentParts {
+					contentParts = append(contentParts, map[string]any{"type": "text", "text": inst.Str})
+				} else {
+					textContent += inst.Str
+				}
+			}
+
+		case PART_JSON:
+			if inMessage {
+				if textContent != "" {
+					contentParts = append(contentParts, map[string]any{"type": "text", "text": textContent})
+					textContent = ""
+				}
+				contentParts = append(contentParts, json.RawMessage(inst.JSON))
+				hasRawContentParts = true
 			}
 
 		case THINK_START:
@@ -117,6 +135,9 @@ func (e *ChatCompletionsEmitter) EmitResponse(prog *Program) ([]byte, error) {
 			if inMessage && currentChoice != nil {
 				if textContent != "" {
 					currentMessage["content"] = textContent
+				}
+				if hasRawContentParts {
+					currentMessage["content"] = contentParts
 				}
 				if reasoningContent != "" {
 					currentMessage["reasoning_content"] = reasoningContent

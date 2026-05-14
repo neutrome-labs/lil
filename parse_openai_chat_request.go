@@ -86,12 +86,11 @@ func (p *ChatCompletionsParser) ParseRequest(body []byte) (*Program, error) {
 		delete(raw, "stream")
 	}
 
-	// Reasoning effort → thinking config
+	// Reasoning effort
 	if effortRaw, ok := raw["reasoning_effort"]; ok {
 		var effort string
 		if json.Unmarshal(effortRaw, &effort) == nil && effort != "" {
-			cfg, _ := json.Marshal(map[string]string{"effort": effort})
-			prog.EmitJSON(SET_THINK, cfg)
+			prog.EmitString(SET_REASON_EFFORT, effort)
 		}
 		delete(raw, "reasoning_effort")
 	}
@@ -100,6 +99,10 @@ func (p *ChatCompletionsParser) ParseRequest(body []byte) (*Program, error) {
 	if fmtRaw, ok := raw["response_format"]; ok {
 		prog.EmitJSON(SET_FMT, fmtRaw)
 		delete(raw, "response_format")
+	}
+	if tcRaw, ok := raw["tool_choice"]; ok {
+		prog.EmitJSON(SET_TOOL, tcRaw)
+		delete(raw, "tool_choice")
 	}
 
 	// Tool definitions
@@ -114,6 +117,7 @@ func (p *ChatCompletionsParser) ParseRequest(body []byte) (*Program, error) {
 				}
 				funcRaw, ok := toolMap["function"]
 				if !ok {
+					prog.EmitJSON(DEF_RAW, rt)
 					continue
 				}
 				delete(toolMap, "function")
@@ -179,8 +183,10 @@ func (p *ChatCompletionsParser) ParseRequest(body []byte) (*Program, error) {
 				delete(msgMap, "role")
 			}
 			switch role {
-			case "system", "developer":
+			case "system":
 				prog.Emit(ROLE_SYS)
+			case "developer":
+				prog.Emit(ROLE_DEV)
 			case "user":
 				prog.Emit(ROLE_USR)
 			case "assistant":
@@ -235,6 +241,10 @@ func (p *ChatCompletionsParser) ParseRequest(body []byte) (*Program, error) {
 									}
 									if json.Unmarshal(iuRaw, &iu) == nil {
 										ref := prog.AddBuffer([]byte(iu.URL))
+										prog.EmitKeyVal(SET_META, "source_type", "url")
+										if iu.Detail != "" {
+											prog.EmitKeyVal(SET_META, "detail", iu.Detail)
+										}
 										prog.EmitRef(IMG_REF, ref)
 									}
 								}
@@ -249,9 +259,21 @@ func (p *ChatCompletionsParser) ParseRequest(body []byte) (*Program, error) {
 										if ia.Format != "" {
 											prog.EmitKeyVal(SET_META, "media_type", "audio/"+ia.Format)
 										}
+										prog.EmitKeyVal(SET_META, "source_type", "base64")
 										prog.EmitRef(AUD_REF, ref)
 									}
 								}
+							case "file", "input_file":
+								if fileRaw, ok := partMap["file"]; ok {
+									var fileMap map[string]json.RawMessage
+									if json.Unmarshal(fileRaw, &fileMap) == nil {
+										emitOpenAIFilePart(prog, fileMap)
+									}
+								} else {
+									emitOpenAIFilePart(prog, partMap)
+								}
+							default:
+								prog.EmitJSON(PART_JSON, rp)
 							}
 						}
 					}

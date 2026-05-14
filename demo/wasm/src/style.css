@@ -1,0 +1,223 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    @apply h-full bg-stone-100 text-stone-950;
+  }
+
+  body {
+    @apply overflow-hidden font-sans;
+  }
+
+  [x-cloak] {
+    display: none !important;
+  }
+}
+
+@layer components {
+  .app-shell {
+    @apply flex h-screen min-h-0 flex-col;
+  }
+
+  .topbar {
+    @apply flex shrink-0 items-center justify-between gap-3 border-b border-stone-300 bg-stone-50 px-4 py-3;
+  }
+
+  .brand {
+    @apply flex min-w-0 items-center gap-3 no-underline;
+  }
+
+  .brand-mark {
+    @apply grid h-9 w-9 place-items-center rounded-sm bg-lime-950 text-xs font-bold tracking-wide text-lime-100;
+  }
+
+  .brand strong,
+  .brand small {
+    @apply block truncate;
+  }
+
+  .brand small {
+    @apply mt-0.5 text-xs font-medium text-stone-600;
+  }
+
+  .topbar-actions {
+    @apply flex shrink-0 items-center gap-2;
+  }
+
+  .status-pill,
+  .link-button,
+  .secondary-button,
+  .primary-button,
+  .text-button {
+    @apply inline-flex h-9 items-center justify-center rounded-sm border px-3 text-sm font-semibold transition;
+  }
+
+  .status-pill {
+    @apply border-lime-900/30 bg-lime-950/5 text-lime-950;
+  }
+
+  .status-pill.is-ready {
+    @apply border-lime-900/40 bg-lime-950 text-lime-100;
+  }
+
+  .link-button,
+  .secondary-button,
+  .text-button {
+    @apply border-stone-300 bg-stone-50 text-stone-800 hover:bg-stone-100;
+  }
+
+  .secondary-button.is-active {
+    @apply border-lime-950 bg-lime-950/10 text-lime-950;
+  }
+
+  .primary-button {
+    @apply border-lime-950 bg-lime-950 text-lime-100 hover:bg-lime-900 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .workspace {
+    @apply flex min-h-0 flex-1 flex-col;
+  }
+
+  .toolbar,
+  .manip-bar {
+    @apply flex shrink-0 flex-wrap items-baseline gap-3 border-b border-stone-300 bg-stone-100 px-4 py-3;
+  }
+
+  .manip-bar {
+    @apply items-center;
+  }
+
+  .toolbar label,
+  .manip-bar label {
+    @apply flex flex-col gap-1 text-xs font-bold uppercase tracking-wide text-stone-600;
+  }
+
+  .toolbar select,
+  .manip-bar select,
+  .manip-bar input[type='number'],
+  .manip-bar input[type='text'] {
+    @apply h-9 rounded-sm border-stone-300 bg-stone-50 text-sm font-medium normal-case tracking-normal text-stone-950 shadow-none focus:border-lime-950 focus:ring-lime-950;
+  }
+
+  .manip-bar input:disabled,
+  .manip-bar select:disabled {
+    @apply bg-stone-200 text-stone-500;
+  }
+
+  .check-control {
+    @apply min-h-9 flex-row items-center normal-case tracking-normal text-stone-800;
+  }
+
+  .check-control input {
+    @apply rounded-sm border-stone-300 text-lime-950 focus:ring-lime-950;
+  }
+
+  .wide-control {
+    @apply min-w-64 flex-1;
+  }
+
+  .route-arrow,
+  .divider {
+    @apply mb-2 text-stone-500;
+  }
+
+  .divider {
+    @apply h-8 w-px bg-stone-300 text-transparent;
+  }
+
+  .toolbar-buttons {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .panels {
+    @apply grid min-h-0 flex-1 grid-cols-1 bg-stone-50 lg:grid-cols-2;
+  }
+
+  .panels.has-disasm {
+    @apply lg:grid-rows-2;
+  }
+
+  .panel {
+    @apply flex min-h-0 flex-col border-b border-stone-300 lg:border-r;
+  }
+
+  .disasm-panel {
+    @apply lg:col-span-2 lg:border-r-0;
+  }
+
+  .panel-head {
+    @apply flex h-10 shrink-0 items-center justify-between border-b border-stone-300 bg-stone-100 px-3;
+  }
+
+  .panel-head strong {
+    @apply text-xs uppercase tracking-wide text-stone-700;
+  }
+
+  textarea,
+  .code-output {
+    @apply min-h-0 flex-1 overflow-auto font-mono text-sm leading-6;
+  }
+
+  textarea {
+    @apply resize-none border-0 bg-stone-50 p-4 outline-none focus:ring-0;
+    tab-size: 2;
+  }
+
+  .code-output pre,
+  .empty-state {
+    @apply p-4;
+  }
+
+  .code-output pre {
+    @apply whitespace-pre-wrap break-words;
+  }
+
+  .empty-state {
+    @apply text-sm text-stone-500;
+  }
+
+  .error-text {
+    @apply whitespace-pre-wrap text-red-700;
+  }
+
+  .conversion-nav {
+    @apply hidden shrink-0 flex-wrap gap-x-4 gap-y-1 border-t border-stone-300 bg-stone-50 px-4 py-3 md:flex;
+  }
+
+  .conversion-nav a {
+    @apply text-xs font-medium text-lime-950 hover:underline;
+  }
+
+  .toast {
+    @apply fixed bottom-4 right-4 rounded-sm border border-lime-900/30 bg-lime-950 px-3 py-2 text-sm font-semibold text-lime-100 shadow-lg;
+  }
+
+  .toast.is-error {
+    @apply border-red-200 bg-red-50 text-red-800;
+  }
+}
+
+@layer utilities {
+  .asm-comment { @apply italic text-slate-500; }
+  .asm-opcode { @apply font-bold text-lime-950; }
+  .asm-opcode-request { @apply font-bold text-green-950; }
+  .asm-opcode-struct { @apply font-bold text-green-900; }
+  .asm-opcode-role { @apply font-bold text-lime-800; }
+  .asm-opcode-content { @apply font-bold text-green-800; }
+  .asm-opcode-thinking { @apply font-bold text-teal-900; }
+  .asm-opcode-tool { @apply font-bold text-emerald-800; }
+  .asm-opcode-config { @apply font-bold text-emerald-900; }
+  .asm-opcode-stream { @apply font-bold text-teal-900; }
+  .asm-opcode-resp { @apply font-bold text-zinc-800; }
+  .asm-string,
+  .json-string { @apply text-green-800; }
+  .asm-number,
+  .json-number { @apply text-stone-700; }
+  .asm-json { @apply text-lime-800; }
+  .json-key { @apply text-lime-950; }
+  .json-bool { @apply text-teal-900; }
+  .json-null { @apply text-stone-500; }
+}

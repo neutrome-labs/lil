@@ -1,0 +1,25 @@
+; Chain use case: hide a planning request, inject its output as reasoning
+; substrate for the implementation request, and only yield the implementation.
+REQ_START main
+  REQ_YIELD none
+  SET_MODEL plan-model
+  MSG_START
+    ROLE_SYS
+    TXT_CHUNK Produce an implementation plan only. Do not write final code.
+  MSG_END
+  MSG_START
+    ROLE_USR
+    TXT_CHUNK Add request sequencing support to the SDK.
+  MSG_END
+REQ_END
+
+
+REQ_START chain:1
+  REQ_YIELD content
+  SET_MODEL impl-model
+  MSG_START
+    ROLE_USR
+    TXT_CHUNK Implement the change using the hidden plan.
+    SUB_REASON main.content
+  MSG_END
+REQ_END

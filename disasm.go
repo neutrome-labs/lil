@@ -12,8 +12,8 @@ import (
 
 // Disasm returns a human-readable assembly listing of the program.
 //
-// If the program contains side-buffers (images, audio, large text referenced by
-// IMG_REF / AUD_REF / TXT_REF), they are emitted as base64-encoded ".ref N"
+// If the program contains side-buffers referenced by *_REF opcodes, they are
+// emitted as base64-encoded ".ref N"
 // directives at the very top, before any opcodes. Asm() understands this
 // format and round-trips them back into Program.Buffers.
 func (p *Program) Disasm() string {
@@ -31,7 +31,7 @@ func (p *Program) Disasm() string {
 	for _, inst := range p.Code {
 		// Decrease indent before END opcodes
 		switch inst.Op {
-		case MSG_END, DEF_END, CALL_END, RESULT_END, STREAM_END, THINK_END:
+		case REQ_END, RESP_END, MSG_END, DEF_END, CALL_END, RESULT_END, STREAM_END, THINK_END:
 			indent--
 			if indent < 0 {
 				indent = 0
@@ -70,23 +70,42 @@ func (p *Program) Disasm() string {
 			}
 		}
 
+		writeFormat := func(j json.RawMessage) {
+			var obj map[string]json.RawMessage
+			if json.Unmarshal(j, &obj) == nil && len(obj) == 1 {
+				if typeRaw, ok := obj["type"]; ok {
+					var typ string
+					if json.Unmarshal(typeRaw, &typ) == nil && typ != "" {
+						sb.WriteByte(' ')
+						sb.WriteString(typ)
+						return
+					}
+				}
+			}
+			writeJSON(j)
+		}
+
 		switch inst.Op {
-		case TXT_CHUNK, DEF_NAME, DEF_DESC, CALL_START, CALL_NAME,
+		case REQ_START, REQ_YIELD, SUB_CONTENT, SUB_REASON, RESP_START,
+			TXT_CHUNK, DEF_NAME, DEF_DESC, CALL_START, CALL_NAME,
 			RESULT_START, RESULT_DATA, RESP_ID, RESP_MODEL, RESP_DONE,
 			SET_MODEL, SET_STOP, STREAM_DELTA,
-			THINK_CHUNK, STREAM_THINK_DELTA:
+			THINK_CHUNK, STREAM_THINK_DELTA, SET_REASON_EFFORT, SET_REASON_MODE:
 			writeStr(inst.Str)
 
 		case SET_TEMP, SET_TOPP:
 			sb.WriteString(fmt.Sprintf(" %.4f", inst.Num))
 
-		case SET_MAX:
+		case SET_MAX, SET_REASON_BUDGET:
 			sb.WriteString(fmt.Sprintf(" %d", inst.Int))
 
-		case IMG_REF, AUD_REF, TXT_REF, THINK_REF:
+		case IMG_REF, AUD_REF, TXT_REF, FILE_REF, VID_REF, THINK_REF:
 			sb.WriteString(fmt.Sprintf(" ref:%d", inst.Ref))
 
-		case DEF_SCHEMA, CALL_ARGS, USAGE, STREAM_TOOL_DELTA, SET_THINK, SET_FMT:
+		case SET_FMT:
+			writeFormat(inst.JSON)
+
+		case PART_JSON, DEF_SCHEMA, DEF_RAW, CALL_ARGS, USAGE, STREAM_TOOL_DELTA, SET_SAFETY, SET_TOOL:
 			writeJSON(inst.JSON)
 
 		case SET_META:
@@ -105,7 +124,7 @@ func (p *Program) Disasm() string {
 
 		// Increase indent after START opcodes
 		switch inst.Op {
-		case MSG_START, DEF_START, CALL_START, RESULT_START, STREAM_START, THINK_START:
+		case REQ_START, RESP_START, MSG_START, DEF_START, CALL_START, RESULT_START, STREAM_START, THINK_START:
 			indent++
 		}
 	}
