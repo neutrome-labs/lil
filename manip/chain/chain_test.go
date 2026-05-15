@@ -83,3 +83,53 @@ func TestApplyCanHideSourceAndInjectReasoning(t *testing.T) {
 		t.Fatalf("thinking = %q", got)
 	}
 }
+
+func TestApplySupportsBothSourceAndBothTarget(t *testing.T) {
+	out, err := New(
+		"Localize",
+		WithSourceField(FieldBoth),
+		WithTargetChannel(FieldBoth),
+	).Apply(baseProgram())
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	requests := out.Requests()
+	unit, err := out.MaterializeRequest(requests[1], map[string]ail.RequestOutput{
+		DefaultSourceID: {Reasoning: "private plan", Content: "visible answer"},
+	})
+	if err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+	if got := unit.Program.ThinkingText(unit.Program.Thinkings()[0]); got != "private plan" {
+		t.Fatalf("thinking = %q", got)
+	}
+	if got := unit.Program.MessageText(unit.Program.Messages()[0]); got != "Localize\n\nvisible answer" {
+		t.Fatalf("message = %q", got)
+	}
+}
+
+func TestApplySupportsBothSourceIntoContent(t *testing.T) {
+	out, err := New(
+		"Localize",
+		WithSourceField(FieldBoth),
+		WithTargetChannel(FieldContent),
+	).Apply(baseProgram())
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	requests := out.Requests()
+	unit, err := out.MaterializeRequest(requests[1], map[string]ail.RequestOutput{
+		DefaultSourceID: {Reasoning: "private plan", Content: "visible answer"},
+	})
+	if err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+	if len(unit.Program.Thinkings()) != 0 {
+		t.Fatalf("unexpected thinking:\n%s", unit.Program.Disasm())
+	}
+	if got := unit.Program.MessageText(unit.Program.Messages()[0]); got != "Localize\n\nprivate planvisible answer" {
+		t.Fatalf("message = %q", got)
+	}
+}

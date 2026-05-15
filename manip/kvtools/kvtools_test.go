@@ -57,7 +57,7 @@ func toolConversation() *ail.Program {
 }
 
 func TestApplyCachesAndStripsOldResultsAndInjectsTool(t *testing.T) {
-	store := NewMemoryStore(100, time.Hour)
+	store := manip.NewMemoryStore(100, time.Hour)
 	kv := New(WithStore(store), WithScope("trace-1"))
 
 	out, err := kv.Apply(toolConversation())
@@ -72,7 +72,7 @@ func TestApplyCachesAndStripsOldResultsAndInjectsTool(t *testing.T) {
 	if old != "old-result" {
 		t.Fatalf("old cache = %q", old)
 	}
-	if _, err := store.Get(context.Background(), DefaultKey(DefaultPrefix, "trace-1", "call_new")); !errors.Is(err, ErrNotFound) {
+	if _, err := store.Get(context.Background(), DefaultKey(DefaultPrefix, "trace-1", "call_new")); !errors.Is(err, manip.ErrNotFound) {
 		t.Fatalf("new result should not be cached, err=%v", err)
 	}
 
@@ -98,14 +98,14 @@ func TestApplyCachesAndStripsOldResultsAndInjectsTool(t *testing.T) {
 }
 
 func TestApplyContextScopeOverridesStaticScope(t *testing.T) {
-	store := NewMemoryStore(100, time.Hour)
+	store := manip.NewMemoryStore(100, time.Hour)
 	kv := New(WithStore(store), WithScope("static"))
 	ctx := ContextWithScope(context.Background(), "ctx-scope")
 
 	if _, err := kv.ApplyContext(ctx, toolConversation()); err != nil {
 		t.Fatalf("apply context: %v", err)
 	}
-	if _, err := store.Get(context.Background(), DefaultKey(DefaultPrefix, "static", "call_old")); !errors.Is(err, ErrNotFound) {
+	if _, err := store.Get(context.Background(), DefaultKey(DefaultPrefix, "static", "call_old")); !errors.Is(err, manip.ErrNotFound) {
 		t.Fatalf("static scope should not have value, err=%v", err)
 	}
 	got, err := store.Get(context.Background(), DefaultKey(DefaultPrefix, "ctx-scope", "call_old"))

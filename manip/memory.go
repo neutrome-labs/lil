@@ -1,10 +1,13 @@
-package kvtools
+package manip
 
 import (
 	"context"
 	"sync"
 	"time"
 )
+
+// DefaultStoreMaxItems is the default capacity used by NewMemoryStore.
+const DefaultStoreMaxItems = 10000
 
 // MemoryStore is an in-memory Store with TTL and simple oldest-entry eviction.
 type MemoryStore struct {
@@ -20,11 +23,11 @@ type memoryEntry struct {
 	expiresAt time.Time
 }
 
-// NewMemoryStore creates an in-memory cache backend. A maxItems value <= 0 uses
-// DefaultMaxItems. defaultTTL is used when Set receives ttl == 0.
+// NewMemoryStore creates an in-memory store backend. A maxItems value <= 0 uses
+// DefaultStoreMaxItems. defaultTTL is used when Set receives ttl == 0.
 func NewMemoryStore(maxItems int, defaultTTL time.Duration) *MemoryStore {
 	if maxItems <= 0 {
-		maxItems = DefaultMaxItems
+		maxItems = DefaultStoreMaxItems
 	}
 	return &MemoryStore{
 		data:       make(map[string]memoryEntry, maxItems),
@@ -34,7 +37,7 @@ func NewMemoryStore(maxItems int, defaultTTL time.Duration) *MemoryStore {
 	}
 }
 
-// Get retrieves a cached value.
+// Get retrieves a stored value.
 func (m *MemoryStore) Get(_ context.Context, key string) (string, error) {
 	m.mu.RLock()
 	entry, ok := m.data[key]
@@ -72,7 +75,7 @@ func (m *MemoryStore) Set(_ context.Context, key, value string, ttl time.Duratio
 	return nil
 }
 
-// Delete removes a cached value.
+// Delete removes a stored value.
 func (m *MemoryStore) Delete(_ context.Context, key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

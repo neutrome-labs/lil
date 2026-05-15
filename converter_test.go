@@ -376,6 +376,58 @@ func TestChatCompletionsResponseParse(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsResponseParsesReasoningField(t *testing.T) {
+	resp := `{
+		"id": "gen-1778838029",
+		"object": "chat.completion",
+		"model": "deepseek/deepseek-v4-flash-20260423:free",
+		"choices": [{
+			"index": 0,
+			"message": {
+				"role": "assistant",
+				"content": "The number of r's is 2.",
+				"reasoning": "Let's break it down."
+			},
+			"finish_reason": "stop"
+		}]
+	}`
+
+	parser := &ChatCompletionsParser{}
+	prog, err := parser.ParseResponse([]byte(resp))
+	if err != nil {
+		t.Fatalf("parse response: %v", err)
+	}
+
+	var foundThinking bool
+	for _, th := range prog.Thinkings() {
+		if prog.ThinkingText(th) == "Let's break it down." {
+			foundThinking = true
+		}
+	}
+	if !foundThinking {
+		t.Fatalf("missing reasoning in AIL:\n%s", prog.Disasm())
+	}
+
+	out, err := ConvertResponse([]byte(resp), StyleChatCompletions, StyleResponses)
+	if err != nil {
+		t.Fatalf("convert response: %v", err)
+	}
+	var converted struct {
+		Output []struct {
+			Type    string `json:"type"`
+			Summary []struct {
+				Text string `json:"text"`
+			} `json:"summary"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(out, &converted); err != nil {
+		t.Fatalf("unmarshal converted: %v", err)
+	}
+	if len(converted.Output) == 0 || converted.Output[0].Type != "reasoning" || len(converted.Output[0].Summary) == 0 || converted.Output[0].Summary[0].Text != "Let's break it down." {
+		t.Fatalf("converted response lost reasoning: %s", out)
+	}
+}
+
 func TestStreamChunkRoundTrip(t *testing.T) {
 	// First chunk: role
 	chunk1 := `{

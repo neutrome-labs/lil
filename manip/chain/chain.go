@@ -11,6 +11,10 @@ import (
 const (
 	DefaultSourceID = "main"
 	DefaultIDPrefix = "chain"
+
+	FieldContent   = "content"
+	FieldReasoning = "reasoning"
+	FieldBoth      = "both"
 )
 
 // Chain appends a second request that receives a prior request output as
@@ -74,7 +78,8 @@ func WithYield(yield string) Option {
 }
 
 // WithTargetChannel chooses how the source output is injected: "content" uses
-// SUB_CONTENT; "reasoning" or "reason" uses SUB_REASON.
+// SUB_CONTENT; "reasoning" or "reason" uses SUB_REASON; "both" preserves both
+// channels when SourceField is also "both".
 func WithTargetChannel(channel string) Option {
 	return func(c *Chain) {
 		if channel != "" {
@@ -102,7 +107,7 @@ func WithStream(stream bool) Option {
 func New(prompt string, opts ...Option) *Chain {
 	c := &Chain{
 		Prompt:        prompt,
-		SourceField:   "content",
+		SourceField:   FieldContent,
 		Yield:         ail.YieldContent,
 		TargetChannel: ail.YieldContent,
 	}
@@ -140,7 +145,7 @@ func (c *Chain) Apply(prog *ail.Program) (*ail.Program, error) {
 	if id == "" {
 		id = nextChainID(out)
 	}
-	selector := fmt.Sprintf("%s.%s", sourceID, c.SourceField)
+	selectors := selectors(sourceID, c.SourceField)
 
 	out.EmitString(ail.REQ_START, id)
 	out.EmitString(ail.REQ_YIELD, c.Yield)
@@ -156,16 +161,47 @@ func (c *Chain) Apply(prog *ail.Program) (*ail.Program, error) {
 		out.EmitString(ail.TXT_CHUNK, c.Prompt)
 		out.EmitString(ail.TXT_CHUNK, "\n\n")
 	}
-	switch c.TargetChannel {
-	case "reasoning", "reason":
-		out.EmitString(ail.SUB_REASON, selector)
-	default:
-		out.EmitString(ail.SUB_CONTENT, selector)
-	}
+	emitSubstrates(out, selectors, c.TargetChannel)
 	out.Emit(ail.MSG_END)
 	out.Emit(ail.REQ_END)
 
 	return out, nil
+}
+
+func selectors(sourceID, field string) []string {
+	switch field {
+	case FieldBoth:
+		return []string{
+			fmt.Sprintf("%s.%s", sourceID, FieldReasoning),
+			fmt.Sprintf("%s.%s", sourceID, FieldContent),
+		}
+	case "reason", FieldReasoning:
+		return []string{fmt.Sprintf("%s.%s", sourceID, FieldReasoning)}
+	default:
+		return []string{fmt.Sprintf("%s.%s", sourceID, FieldContent)}
+	}
+}
+
+func emitSubstrates(out *ail.Program, selectors []string, target string) {
+	switch target {
+	case FieldBoth:
+		if len(selectors) == 2 {
+			out.EmitString(ail.SUB_REASON, selectors[0])
+			out.EmitString(ail.SUB_CONTENT, selectors[1])
+			return
+		}
+		for _, selector := range selectors {
+			out.EmitString(ail.SUB_CONTENT, selector)
+		}
+	case "reason", FieldReasoning:
+		for _, selector := range selectors {
+			out.EmitString(ail.SUB_REASON, selector)
+		}
+	default:
+		for _, selector := range selectors {
+			out.EmitString(ail.SUB_CONTENT, selector)
+		}
+	}
 }
 
 func ensureExplicitRequests(prog *ail.Program) *ail.Program {

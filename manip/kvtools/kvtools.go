@@ -26,9 +26,6 @@ const (
 
 	// DefaultTTL is used for cached tool results.
 	DefaultTTL = 30 * time.Minute
-
-	// DefaultMaxItems is used by the default memory store.
-	DefaultMaxItems = 10000
 )
 
 const defaultDescription = "Retrieve the result of a previous tool call by its ID. Use this when you need data from a tool call that was made earlier in the conversation but whose result is no longer in context."
@@ -71,7 +68,7 @@ type KeyFunc func(prefix, scope, callID string) string
 // the AIL program, and injects a get_tool_result tool definition so the model
 // can retrieve cached results on demand.
 type KVTools struct {
-	Store Store
+	Store manip.Store
 
 	TTL                    time.Duration
 	Prefix                 string
@@ -90,7 +87,7 @@ type KVTools struct {
 type Option = manip.Option[KVTools]
 
 // WithStore sets the cache backend.
-func WithStore(store Store) Option {
+func WithStore(store manip.Store) Option {
 	return func(k *KVTools) {
 		if store != nil {
 			k.Store = store
@@ -195,7 +192,7 @@ func WithKeyFunc(fn KeyFunc) Option {
 // New creates a KVTools manip with a default in-memory store.
 func New(opts ...Option) *KVTools {
 	k := &KVTools{
-		Store:                  NewMemoryStore(DefaultMaxItems, DefaultTTL),
+		Store:                  manip.NewMemoryStore(manip.DefaultStoreMaxItems, DefaultTTL),
 		TTL:                    DefaultTTL,
 		Prefix:                 DefaultPrefix,
 		ToolName:               DefaultToolName,
@@ -336,7 +333,7 @@ func (k *KVTools) ToolDef() []ail.Instruction {
 // Lookup retrieves a cached tool result by original tool call ID.
 func (k *KVTools) Lookup(ctx context.Context, toolCallID string) (string, error) {
 	if k == nil {
-		return "", ErrNotFound
+		return "", manip.ErrNotFound
 	}
 	k.withDefaults()
 	if ctx == nil {
@@ -430,7 +427,7 @@ func ToolResultMessage(callID, result string) []ail.Instruction {
 
 func (k *KVTools) withDefaults() {
 	if k.Store == nil {
-		k.Store = NewMemoryStore(DefaultMaxItems, DefaultTTL)
+		k.Store = manip.NewMemoryStore(manip.DefaultStoreMaxItems, DefaultTTL)
 	}
 	if k.Prefix == "" {
 		k.Prefix = DefaultPrefix

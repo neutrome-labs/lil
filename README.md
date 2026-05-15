@@ -120,7 +120,7 @@ out, err = emitter.EmitRequest(prog)
 
 ```go
 toolCache := kvtools.New(
-    kvtools.WithStore(myStore), // any kvtools.Store implementation
+    kvtools.WithStore(myStore), // any manip.Store implementation
     kvtools.WithTTL(30*time.Minute),
 )
 
@@ -141,7 +141,7 @@ Consumers can serve that tool from any inference loop:
 result, handled, err := toolCache.HandleToolCall(ctx, name, argsJSON)
 ```
 
-Cache backends only need this interface:
+Cache backends implement `manip.Store`:
 
 ```go
 type Store interface {
@@ -230,9 +230,11 @@ type RuntimeTransform interface {
 ```
 
 `transform/chain` buffers selected source output, sends it to a chained
-executor, and emits the chained response as replacement stream chunks. This is
-useful for replacing raw model reasoning with short captions from a smaller
-model:
+executor, and emits the chained response as replacement stream chunks. Chained
+requests run in order and include prior source/output history so streaming
+translation can stay consistent across segments. Per-segment terminal events are
+suppressed, so the client sees one logical stream. This is useful for replacing
+raw model reasoning with short captions from a smaller model:
 
 ```go
 captioner := transformchain.New(

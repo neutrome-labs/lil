@@ -52,6 +52,11 @@ Default behavior:
 - Source selected chunks are stripped
 - Buffer flushes every 800 chars and at stream end
 - One chained request runs at a time
+- Each chained request includes prior source text and prior chained output for
+  consistency across segments
+- Per-segment terminal events from the chained executor are suppressed; the
+  downstream client sees one logical stream with one terminal marker from the
+  source stream
 
 Example: replace raw reasoning with captions from a smaller model.
 
@@ -63,7 +68,6 @@ captioner := chain.New(
     chain.WithSourceField(chain.SourceReasoning),
     chain.WithTargetChannel(chain.TargetReasoning),
     chain.WithFlushEveryChars(800),
-    chain.WithMaxInFlight(1),
 )
 
 out := captioner.Apply(ctx, sourceStream)
@@ -94,6 +98,22 @@ captioner := chain.New(
     chain.WithIncludeSource(true),
 )
 ```
+
+To translate visible content incrementally while preserving context between
+segments:
+
+```go
+translator := chain.New(
+    chain.WithExecutor(translationModel),
+    chain.WithPrompt("Translate the next source segment. Continue the prior translated text naturally."),
+    chain.WithSourceField(chain.SourceContent),
+    chain.WithTargetChannel(chain.TargetContent),
+    chain.WithFlushEveryChars(800),
+)
+```
+
+History can be disabled with `WithIncludeHistory(false)` or bounded with
+`WithMaxHistoryChars(n)`.
 
 ## Executor Boundary
 

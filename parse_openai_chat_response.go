@@ -53,6 +53,7 @@ func (p *ChatCompletionsParser) ParseResponse(body []byte) (*Program, error) {
 					var msg struct {
 						Role             string          `json:"role"`
 						Content          json.RawMessage `json:"content"`
+						Reasoning        string          `json:"reasoning,omitempty"`
 						ReasoningContent string          `json:"reasoning_content,omitempty"`
 						ToolCalls        []struct {
 							ID       string `json:"id"`
@@ -69,10 +70,16 @@ func (p *ChatCompletionsParser) ParseResponse(body []byte) (*Program, error) {
 							prog.Emit(ROLE_AST)
 						}
 
-						// Reasoning content (before main content)
-						if msg.ReasoningContent != "" {
+						// Reasoning content (before main content). Some
+						// OpenAI-compatible providers use "reasoning" while
+						// others use "reasoning_content".
+						reasoning := msg.ReasoningContent
+						if reasoning == "" {
+							reasoning = msg.Reasoning
+						}
+						if reasoning != "" {
 							prog.Emit(THINK_START)
-							prog.EmitString(THINK_CHUNK, msg.ReasoningContent)
+							prog.EmitString(THINK_CHUNK, reasoning)
 							prog.Emit(THINK_END)
 						}
 
