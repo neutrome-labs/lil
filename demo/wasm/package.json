@@ -2,12 +2,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "npm run build:examples && make -C ../.. demo-wasm && vite build",
+    "build:wasm": "GOOS=js GOARCH=wasm go build -trimpath -ldflags=\"-s -w\" -o ./src/demo.wasm ./wasm && cp \"$(go env GOROOT)/lib/wasm/wasm_exec.js\" ./src/wasm_exec.js",
     "build:examples": "node scripts/build-examples.mjs",
-    "deploy": "npm run build && wrangler deploy",
-    "dev": "npm run build:examples && make -C ../.. demo-wasm && vite --host 0.0.0.0",
-    "preview": "npm run build && wrangler dev",
-    "serve": "vite preview --host 0.0.0.0"
+    "build": "npm run build:examples && npm run build:wasm && vite build",
+    "dev": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "alpinejs": "^3.15.0"
