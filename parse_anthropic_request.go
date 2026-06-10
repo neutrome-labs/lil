@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/json"
@@ -7,13 +7,13 @@ import (
 
 // ─── Anthropic Messages Parser ───────────────────────────────────────────────
 
-// AnthropicParser parses Anthropic Messages API JSON into AIL.
+// AnthropicParser parses Anthropic Messages API JSON into LIL.
 type AnthropicParser struct{}
 
 func (p *AnthropicParser) ParseRequest(body []byte) (*Program, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("ail: parse anthropic request: %w", err)
+		return nil, fmt.Errorf("lil: parse anthropic request: %w", err)
 	}
 
 	prog := NewProgram()

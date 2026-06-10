@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 func (p *ResponsesParser) ParseResponse(body []byte) (*Program, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("ail: parse responses response: %w", err)
+		return nil, fmt.Errorf("lil: parse responses response: %w", err)
 	}
 
 	prog := NewProgram()
@@ -170,4 +170,4 @@ func (p *ResponsesParser) ParseResponse(body []byte) (*Program, error) {
 	return prog, nil
 }
 
-// ParseStreamChunk parses an OpenAI Responses API streaming event into AIL.
+// ParseStreamChunk parses an OpenAI Responses API streaming event into LIL.

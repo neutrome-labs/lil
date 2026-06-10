@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 func (p *AnthropicParser) ParseStreamChunk(body []byte) (*Program, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("ail: parse anthropic stream event: %w", err)
+		return nil, fmt.Errorf("lil: parse anthropic stream event: %w", err)
 	}
 
 	prog := NewProgram()

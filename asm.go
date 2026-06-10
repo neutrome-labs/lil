@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"bytes"
@@ -21,7 +21,6 @@ func init() {
 
 // opcodes that take a plain string argument (rest of line after opcode).
 var stringArgOps = map[Opcode]bool{
-	REQ_START: true, REQ_YIELD: true, SUB_CONTENT: true, SUB_REASON: true, RESP_START: true,
 	TXT_CHUNK: true, DEF_NAME: true, DEF_DESC: true,
 	CALL_START: true, CALL_NAME: true,
 	RESULT_START: true, RESULT_DATA: true,
@@ -52,7 +51,7 @@ var refArgOps = map[Opcode]bool{
 }
 
 // Asm parses a human-readable assembly listing (as produced by Disasm) back
-// into an AIL Program. Lines are separated by newlines; leading whitespace
+// into an LIL Program. Lines are separated by newlines; leading whitespace
 // (indentation) is ignored. Comment lines starting with ";" are silently
 // skipped (real-asm style).
 //

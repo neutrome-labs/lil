@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 func (p *GoogleGenAIParser) ParseStreamChunk(body []byte) (*Program, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("ail: parse google genai stream chunk: %w", err)
+		return nil, fmt.Errorf("lil: parse google genai stream chunk: %w", err)
 	}
 
 	prog := NewProgram()

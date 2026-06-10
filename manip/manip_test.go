@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/neutrome-labs/ail"
-	"github.com/neutrome-labs/ail/manip"
-	"github.com/neutrome-labs/ail/manip/slwin"
+	"github.com/neutrome-labs/lil"
+	"github.com/neutrome-labs/lil/manip"
+	"github.com/neutrome-labs/lil/manip/slwin"
 )
 
 func TestConvertRequestAppliesManipBetweenParseAndEmit(t *testing.T) {
@@ -22,8 +22,8 @@ func TestConvertRequestAppliesManipBetweenParseAndEmit(t *testing.T) {
 
 	out, err := manip.ConvertRequest(
 		body,
-		ail.StyleChatCompletions,
-		ail.StyleChatCompletions,
+		lil.StyleChatCompletions,
+		lil.StyleChatCompletions,
 		slwin.New(slwin.WithKeepEnd(1), slwin.WithKeepStart(1)),
 	)
 	if err != nil {
@@ -58,8 +58,8 @@ func TestRequestConverterAppliesManipBetweenParseAndEmit(t *testing.T) {
 	}`)
 
 	converter, err := manip.NewRequestConverter(
-		ail.StyleChatCompletions,
-		ail.StyleChatCompletions,
+		lil.StyleChatCompletions,
+		lil.StyleChatCompletions,
 		slwin.New(slwin.WithKeepEnd(1), slwin.WithKeepStart(0)),
 	)
 	if err != nil {
@@ -84,17 +84,17 @@ func TestRequestConverterAppliesManipBetweenParseAndEmit(t *testing.T) {
 }
 
 func TestAttachEmitterAppliesManip(t *testing.T) {
-	p := ail.NewProgram()
-	p.EmitString(ail.SET_MODEL, "gpt-4o")
+	p := lil.NewProgram()
+	p.EmitString(lil.SET_MODEL, "gpt-4o")
 	for _, text := range []string{"a", "b", "c"} {
-		p.Emit(ail.MSG_START)
-		p.Emit(ail.ROLE_USR)
-		p.EmitString(ail.TXT_CHUNK, text)
-		p.Emit(ail.MSG_END)
+		p.Emit(lil.MSG_START)
+		p.Emit(lil.ROLE_USR)
+		p.EmitString(lil.TXT_CHUNK, text)
+		p.Emit(lil.MSG_END)
 	}
 
 	emitter := manip.AttachEmitter(
-		&ail.ChatCompletionsEmitter{},
+		&lil.ChatCompletionsEmitter{},
 		slwin.New(slwin.WithKeepEnd(1), slwin.WithKeepStart(0)),
 	)
 	out, err := emitter.EmitRequest(p)

@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/binary"
@@ -9,13 +9,13 @@ import (
 )
 
 // Binary format constants.
-var binaryMagic = [4]byte{'A', 'I', 'L', 0x00}
+var binaryMagic = [4]byte{'L', 'I', 'L', 0x00}
 
 const binaryVersion uint8 = 1
 
 // ─── Binary Encoder ──────────────────────────────────────────────────────────
 
-// Encode writes the program to w in AIL binary format.
+// Encode writes the program to w in LIL binary format.
 //
 // Wire layout:
 //
@@ -23,19 +23,19 @@ const binaryVersion uint8 = 1
 func (p *Program) Encode(w io.Writer) error {
 	// Header
 	if _, err := w.Write(binaryMagic[:]); err != nil {
-		return fmt.Errorf("ail.Encode: write magic: %w", err)
+		return fmt.Errorf("lil.Encode: write magic: %w", err)
 	}
 	if _, err := w.Write([]byte{binaryVersion}); err != nil {
-		return fmt.Errorf("ail.Encode: write version: %w", err)
+		return fmt.Errorf("lil.Encode: write version: %w", err)
 	}
 
 	// Buffers
 	if err := writeUint32(w, uint32(len(p.Buffers))); err != nil {
-		return fmt.Errorf("ail.Encode: write buffer count: %w", err)
+		return fmt.Errorf("lil.Encode: write buffer count: %w", err)
 	}
 	for i, buf := range p.Buffers {
 		if err := writeBytes(w, buf); err != nil {
-			return fmt.Errorf("ail.Encode: write buffer %d: %w", i, err)
+			return fmt.Errorf("lil.Encode: write buffer %d: %w", i, err)
 		}
 	}
 
@@ -46,16 +46,14 @@ func (p *Program) Encode(w io.Writer) error {
 		}
 		switch inst.Op {
 		// No-arg opcodes
-		case REQ_END, RESP_END,
-			MSG_START, MSG_END, ROLE_SYS, ROLE_USR, ROLE_AST, ROLE_TOOL, ROLE_DEV,
+		case MSG_START, MSG_END, ROLE_SYS, ROLE_USR, ROLE_AST, ROLE_TOOL, ROLE_DEV,
 			DEF_START, DEF_END, CALL_END, RESULT_END,
 			SET_STREAM, STREAM_START, STREAM_END,
 			THINK_START, THINK_END:
 			// nothing extra
 
 		// String arg
-		case REQ_START, REQ_YIELD, SUB_CONTENT, SUB_REASON, RESP_START,
-			TXT_CHUNK, DEF_NAME, DEF_DESC, CALL_START, CALL_NAME,
+		case TXT_CHUNK, DEF_NAME, DEF_DESC, CALL_START, CALL_NAME,
 			RESULT_START, RESULT_DATA, RESP_ID, RESP_MODEL, RESP_DONE,
 			SET_MODEL, SET_STOP, STREAM_DELTA,
 			THINK_CHUNK, STREAM_THINK_DELTA, SET_REASON_EFFORT, SET_REASON_MODE:
@@ -106,7 +104,7 @@ func (p *Program) Encode(w io.Writer) error {
 			}
 
 		default:
-			return fmt.Errorf("ail.Encode: unknown opcode 0x%02X", inst.Op)
+			return fmt.Errorf("lil.Encode: unknown opcode 0x%02X", inst.Op)
 		}
 	}
 	return nil
@@ -114,31 +112,31 @@ func (p *Program) Encode(w io.Writer) error {
 
 // ─── Binary Decoder ──────────────────────────────────────────────────────────
 
-// Decode reads an AIL binary program from r.
+// Decode reads an LIL binary program from r.
 func Decode(r io.Reader) (*Program, error) {
 	// Header
 	var header [5]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
-		return nil, fmt.Errorf("ail.Decode: read header: %w", err)
+		return nil, fmt.Errorf("lil.Decode: read header: %w", err)
 	}
 	if header[0] != binaryMagic[0] || header[1] != binaryMagic[1] ||
 		header[2] != binaryMagic[2] || header[3] != binaryMagic[3] {
-		return nil, fmt.Errorf("ail.Decode: invalid magic bytes %q", header[:4])
+		return nil, fmt.Errorf("lil.Decode: invalid magic bytes %q", header[:4])
 	}
 	if header[4] != binaryVersion {
-		return nil, fmt.Errorf("ail.Decode: unsupported version %d (want %d)", header[4], binaryVersion)
+		return nil, fmt.Errorf("lil.Decode: unsupported version %d (want %d)", header[4], binaryVersion)
 	}
 
 	// Buffers
 	bufCount, err := readUint32(r)
 	if err != nil {
-		return nil, fmt.Errorf("ail.Decode: read buffer count: %w", err)
+		return nil, fmt.Errorf("lil.Decode: read buffer count: %w", err)
 	}
 	p := NewProgram()
 	for i := uint32(0); i < bufCount; i++ {
 		buf, err := readBytes(r)
 		if err != nil {
-			return nil, fmt.Errorf("ail.Decode: read buffer %d: %w", i, err)
+			return nil, fmt.Errorf("lil.Decode: read buffer %d: %w", i, err)
 		}
 		p.Buffers = append(p.Buffers, buf)
 	}
@@ -152,7 +150,7 @@ func Decode(r io.Reader) (*Program, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("ail.Decode: read opcode: %w", err)
+			return nil, fmt.Errorf("lil.Decode: read opcode: %w", err)
 		}
 
 		op := Opcode(opBuf[0])
@@ -160,22 +158,20 @@ func Decode(r io.Reader) (*Program, error) {
 
 		switch op {
 		// No-arg opcodes
-		case REQ_END, RESP_END,
-			MSG_START, MSG_END, ROLE_SYS, ROLE_USR, ROLE_AST, ROLE_TOOL, ROLE_DEV,
+		case MSG_START, MSG_END, ROLE_SYS, ROLE_USR, ROLE_AST, ROLE_TOOL, ROLE_DEV,
 			DEF_START, DEF_END, CALL_END, RESULT_END,
 			SET_STREAM, STREAM_START, STREAM_END,
 			THINK_START, THINK_END:
 			// nothing
 
 		// String arg
-		case REQ_START, REQ_YIELD, SUB_CONTENT, SUB_REASON, RESP_START,
-			TXT_CHUNK, DEF_NAME, DEF_DESC, CALL_START, CALL_NAME,
+		case TXT_CHUNK, DEF_NAME, DEF_DESC, CALL_START, CALL_NAME,
 			RESULT_START, RESULT_DATA, RESP_ID, RESP_MODEL, RESP_DONE,
 			SET_MODEL, SET_STOP, STREAM_DELTA,
 			THINK_CHUNK, STREAM_THINK_DELTA, SET_REASON_EFFORT, SET_REASON_MODE:
 			s, err := readString(r)
 			if err != nil {
-				return nil, fmt.Errorf("ail.Decode %s: %w", op.Name(), err)
+				return nil, fmt.Errorf("lil.Decode %s: %w", op.Name(), err)
 			}
 			inst.Str = s
 
@@ -183,7 +179,7 @@ func Decode(r io.Reader) (*Program, error) {
 		case SET_TEMP, SET_TOPP:
 			f, err := readFloat64(r)
 			if err != nil {
-				return nil, fmt.Errorf("ail.Decode %s: %w", op.Name(), err)
+				return nil, fmt.Errorf("lil.Decode %s: %w", op.Name(), err)
 			}
 			inst.Num = f
 
@@ -191,7 +187,7 @@ func Decode(r io.Reader) (*Program, error) {
 		case SET_MAX, SET_REASON_BUDGET:
 			i, err := readInt32(r)
 			if err != nil {
-				return nil, fmt.Errorf("ail.Decode %s: %w", op.Name(), err)
+				return nil, fmt.Errorf("lil.Decode %s: %w", op.Name(), err)
 			}
 			inst.Int = i
 
@@ -199,7 +195,7 @@ func Decode(r io.Reader) (*Program, error) {
 		case PART_JSON, DEF_SCHEMA, DEF_RAW, CALL_ARGS, USAGE, STREAM_TOOL_DELTA, SET_FMT, SET_SAFETY, SET_TOOL:
 			b, err := readBytes(r)
 			if err != nil {
-				return nil, fmt.Errorf("ail.Decode %s: %w", op.Name(), err)
+				return nil, fmt.Errorf("lil.Decode %s: %w", op.Name(), err)
 			}
 			inst.JSON = json.RawMessage(b)
 
@@ -207,7 +203,7 @@ func Decode(r io.Reader) (*Program, error) {
 		case IMG_REF, AUD_REF, TXT_REF, FILE_REF, VID_REF, THINK_REF:
 			ref, err := readUint32(r)
 			if err != nil {
-				return nil, fmt.Errorf("ail.Decode %s: %w", op.Name(), err)
+				return nil, fmt.Errorf("lil.Decode %s: %w", op.Name(), err)
 			}
 			inst.Ref = ref
 
@@ -215,11 +211,11 @@ func Decode(r io.Reader) (*Program, error) {
 		case SET_META:
 			k, err := readString(r)
 			if err != nil {
-				return nil, fmt.Errorf("ail.Decode SET_META key: %w", err)
+				return nil, fmt.Errorf("lil.Decode SET_META key: %w", err)
 			}
 			v, err := readString(r)
 			if err != nil {
-				return nil, fmt.Errorf("ail.Decode SET_META val: %w", err)
+				return nil, fmt.Errorf("lil.Decode SET_META val: %w", err)
 			}
 			inst.Key = k
 			inst.Str = v
@@ -228,17 +224,17 @@ func Decode(r io.Reader) (*Program, error) {
 		case EXT_DATA:
 			k, err := readString(r)
 			if err != nil {
-				return nil, fmt.Errorf("ail.Decode EXT_DATA key: %w", err)
+				return nil, fmt.Errorf("lil.Decode EXT_DATA key: %w", err)
 			}
 			b, err := readBytes(r)
 			if err != nil {
-				return nil, fmt.Errorf("ail.Decode EXT_DATA json: %w", err)
+				return nil, fmt.Errorf("lil.Decode EXT_DATA json: %w", err)
 			}
 			inst.Key = k
 			inst.JSON = json.RawMessage(b)
 
 		default:
-			return nil, fmt.Errorf("ail.Decode: unknown opcode 0x%02X", op)
+			return nil, fmt.Errorf("lil.Decode: unknown opcode 0x%02X", op)
 		}
 
 		p.Code = append(p.Code, inst)

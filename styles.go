@@ -1,7 +1,7 @@
-package ail
+package lil
 
 // Style represents a provider's API style.
-// This is defined in the ail package so it has zero external dependencies,
+// This is defined in the lil package so it has zero external dependencies,
 // making it safe to extract into a standalone module.
 type Style string
 

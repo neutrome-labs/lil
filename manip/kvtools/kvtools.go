@@ -1,4 +1,4 @@
-// Package kvtools provides an SDK-style AIL manipulation for caching old tool
+// Package kvtools provides an SDK-style LIL manipulation for caching old tool
 // results and exposing a retrieval tool definition.
 package kvtools
 
@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/neutrome-labs/ail"
-	"github.com/neutrome-labs/ail/manip"
+	"github.com/neutrome-labs/lil"
+	"github.com/neutrome-labs/lil/manip"
 )
 
 const (
@@ -65,7 +65,7 @@ func ScopeFromContext(ctx context.Context) string {
 type KeyFunc func(prefix, scope, callID string) string
 
 // KVTools caches older completed tool results, strips their RESULT_DATA from
-// the AIL program, and injects a get_tool_result tool definition so the model
+// the LIL program, and injects a get_tool_result tool definition so the model
 // can retrieve cached results on demand.
 type KVTools struct {
 	Store manip.Store
@@ -218,13 +218,13 @@ func DefaultKey(prefix, scope, callID string) string {
 }
 
 // Apply applies the kvtools transform with context.Background.
-func (k *KVTools) Apply(prog *ail.Program) (*ail.Program, error) {
+func (k *KVTools) Apply(prog *lil.Program) (*lil.Program, error) {
 	return k.ApplyContext(context.Background(), prog)
 }
 
 // ApplyContext caches and strips old tool results, then injects the retrieval
 // tool definition when enabled.
-func (k *KVTools) ApplyContext(ctx context.Context, prog *ail.Program) (*ail.Program, error) {
+func (k *KVTools) ApplyContext(ctx context.Context, prog *lil.Program) (*lil.Program, error) {
 	if prog == nil {
 		return nil, nil
 	}
@@ -245,7 +245,7 @@ func (k *KVTools) ApplyContext(ctx context.Context, prog *ail.Program) (*ail.Pro
 
 // CacheAndStrip caches RESULT_DATA from older completed tool interactions and
 // removes those RESULT_DATA instructions from the returned program.
-func (k *KVTools) CacheAndStrip(ctx context.Context, prog *ail.Program) (*ail.Program, error) {
+func (k *KVTools) CacheAndStrip(ctx context.Context, prog *lil.Program) (*lil.Program, error) {
 	if prog == nil {
 		return nil, nil
 	}
@@ -274,7 +274,7 @@ func (k *KVTools) CacheAndStrip(ctx context.Context, prog *ail.Program) (*ail.Pr
 	var removeIndices []int
 	for _, interaction := range toCache {
 		for msgIndex := interaction.assistIdx + 1; msgIndex <= interaction.endIdx; msgIndex++ {
-			if msgs[msgIndex].Role != ail.ROLE_TOOL {
+			if msgs[msgIndex].Role != lil.ROLE_TOOL {
 				continue
 			}
 			for _, result := range results {
@@ -307,7 +307,7 @@ func (k *KVTools) CacheAndStrip(ctx context.Context, prog *ail.Program) (*ail.Pr
 
 // InjectTool returns prog with the retrieval tool definition inserted. If the
 // tool definition already exists, prog is returned unchanged.
-func (k *KVTools) InjectTool(prog *ail.Program) *ail.Program {
+func (k *KVTools) InjectTool(prog *lil.Program) *lil.Program {
 	if prog == nil {
 		return nil
 	}
@@ -322,7 +322,7 @@ func (k *KVTools) InjectTool(prog *ail.Program) *ail.Program {
 }
 
 // ToolDef returns the retrieval tool definition instructions.
-func (k *KVTools) ToolDef() []ail.Instruction {
+func (k *KVTools) ToolDef() []lil.Instruction {
 	if k == nil {
 		k = New()
 	}
@@ -373,13 +373,13 @@ func (k *KVTools) HandleToolCall(ctx context.Context, name string, args json.Raw
 // DispatchCalls finds retrieval tool calls in responseProg and returns
 // synthetic tool-result messages for handled calls. Apps can append these
 // instructions to their next request program in their own inference loop.
-func (k *KVTools) DispatchCalls(ctx context.Context, responseProg *ail.Program) ([]ail.Instruction, int, error) {
+func (k *KVTools) DispatchCalls(ctx context.Context, responseProg *lil.Program) ([]lil.Instruction, int, error) {
 	if k == nil || responseProg == nil {
 		return nil, 0, nil
 	}
 	k.withDefaults()
 
-	var out []ail.Instruction
+	var out []lil.Instruction
 	handled := 0
 	for _, call := range responseProg.ToolCalls() {
 		if call.Name != k.ToolName {
@@ -400,28 +400,28 @@ func (k *KVTools) DispatchCalls(ctx context.Context, responseProg *ail.Program) 
 }
 
 // BuildToolDef builds a complete DEF_START..DEF_END instruction sequence.
-func BuildToolDef(name, description string, schema json.RawMessage) []ail.Instruction {
-	insts := []ail.Instruction{
-		{Op: ail.DEF_START},
-		{Op: ail.DEF_NAME, Str: name},
-		{Op: ail.DEF_DESC, Str: description},
+func BuildToolDef(name, description string, schema json.RawMessage) []lil.Instruction {
+	insts := []lil.Instruction{
+		{Op: lil.DEF_START},
+		{Op: lil.DEF_NAME, Str: name},
+		{Op: lil.DEF_DESC, Str: description},
 	}
 	if len(schema) > 0 {
-		insts = append(insts, ail.Instruction{Op: ail.DEF_SCHEMA, JSON: cloneRaw(schema)})
+		insts = append(insts, lil.Instruction{Op: lil.DEF_SCHEMA, JSON: cloneRaw(schema)})
 	}
-	insts = append(insts, ail.Instruction{Op: ail.DEF_END})
+	insts = append(insts, lil.Instruction{Op: lil.DEF_END})
 	return insts
 }
 
 // ToolResultMessage builds a synthetic tool-result message for callID.
-func ToolResultMessage(callID, result string) []ail.Instruction {
-	return []ail.Instruction{
-		{Op: ail.MSG_START},
-		{Op: ail.ROLE_TOOL},
-		{Op: ail.RESULT_START, Str: callID},
-		{Op: ail.RESULT_DATA, Str: result},
-		{Op: ail.RESULT_END},
-		{Op: ail.MSG_END},
+func ToolResultMessage(callID, result string) []lil.Instruction {
+	return []lil.Instruction{
+		{Op: lil.MSG_START},
+		{Op: lil.ROLE_TOOL},
+		{Op: lil.RESULT_START, Str: callID},
+		{Op: lil.RESULT_DATA, Str: result},
+		{Op: lil.RESULT_END},
+		{Op: lil.MSG_END},
 	}
 }
 
@@ -458,14 +458,14 @@ type interaction struct {
 	endIdx    int
 }
 
-func completedInteractions(msgs []ail.MessageSpan, calls []ail.ToolCallSpan) []interaction {
+func completedInteractions(msgs []lil.MessageSpan, calls []lil.ToolCallSpan) []interaction {
 	var out []interaction
 	for i := 0; i < len(msgs); i++ {
-		if msgs[i].Role != ail.ROLE_AST || !spanHasCalls(calls, msgs[i]) {
+		if msgs[i].Role != lil.ROLE_AST || !spanHasCalls(calls, msgs[i]) {
 			continue
 		}
 		item := interaction{assistIdx: i, endIdx: i}
-		for j := i + 1; j < len(msgs) && msgs[j].Role == ail.ROLE_TOOL; j++ {
+		for j := i + 1; j < len(msgs) && msgs[j].Role == lil.ROLE_TOOL; j++ {
 			item.endIdx = j
 		}
 		out = append(out, item)
@@ -474,7 +474,7 @@ func completedInteractions(msgs []ail.MessageSpan, calls []ail.ToolCallSpan) []i
 	return out
 }
 
-func spanHasCalls(calls []ail.ToolCallSpan, span ail.MessageSpan) bool {
+func spanHasCalls(calls []lil.ToolCallSpan, span lil.MessageSpan) bool {
 	for _, call := range calls {
 		if call.Start >= span.Start && call.End <= span.End {
 			return true
@@ -483,11 +483,11 @@ func spanHasCalls(calls []ail.ToolCallSpan, span ail.MessageSpan) bool {
 	return false
 }
 
-func resultData(prog *ail.Program, result ail.ToolResultSpan) ([]int, string) {
+func resultData(prog *lil.Program, result lil.ToolResultSpan) ([]int, string) {
 	var indices []int
 	var sb strings.Builder
 	for i := result.Start; i <= result.End && i < len(prog.Code); i++ {
-		if prog.Code[i].Op == ail.RESULT_DATA {
+		if prog.Code[i].Op == lil.RESULT_DATA {
 			indices = append(indices, i)
 			sb.WriteString(prog.Code[i].Str)
 		}
@@ -495,16 +495,16 @@ func resultData(prog *ail.Program, result ail.ToolResultSpan) ([]int, string) {
 	return indices, sb.String()
 }
 
-func callArgs(prog *ail.Program, call ail.ToolCallSpan) json.RawMessage {
+func callArgs(prog *lil.Program, call lil.ToolCallSpan) json.RawMessage {
 	for i := call.Start; i <= call.End && i < len(prog.Code); i++ {
-		if prog.Code[i].Op == ail.CALL_ARGS {
+		if prog.Code[i].Op == lil.CALL_ARGS {
 			return cloneRaw(prog.Code[i].JSON)
 		}
 	}
 	return nil
 }
 
-func hasToolDef(prog *ail.Program, name string) bool {
+func hasToolDef(prog *lil.Program, name string) bool {
 	for _, def := range prog.ToolDefs() {
 		if def.Name == name {
 			return true
@@ -513,9 +513,9 @@ func hasToolDef(prog *ail.Program, name string) bool {
 	return false
 }
 
-func injectDefs(prog *ail.Program, defs ...ail.Instruction) *ail.Program {
+func injectDefs(prog *lil.Program, defs ...lil.Instruction) *lil.Program {
 	for i := len(prog.Code) - 1; i >= 0; i-- {
-		if prog.Code[i].Op == ail.DEF_END {
+		if prog.Code[i].Op == lil.DEF_END {
 			return prog.InsertAfter(i, defs...)
 		}
 	}

@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 
 // ─── Anthropic Messages Emitter ──────────────────────────────────────────────
 
-// AnthropicEmitter converts an AIL Program into Anthropic Messages API JSON.
+// AnthropicEmitter converts an LIL Program into Anthropic Messages API JSON.
 type AnthropicEmitter struct{}
 
 func (e *AnthropicEmitter) EmitRequest(prog *Program) ([]byte, error) {

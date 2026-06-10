@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 
 // ─── OpenAI Responses API Emitter ────────────────────────────────────────────
 
-// ResponsesEmitter converts an AIL Program into OpenAI Responses API JSON.
+// ResponsesEmitter converts an LIL Program into OpenAI Responses API JSON.
 type ResponsesEmitter struct{}
 
 func (e *ResponsesEmitter) EmitRequest(prog *Program) ([]byte, error) {

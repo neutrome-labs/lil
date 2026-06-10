@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/json"
@@ -7,13 +7,13 @@ import (
 
 // ─── OpenAI Responses API Parser ─────────────────────────────────────────────
 
-// ResponsesParser parses OpenAI Responses API JSON into AIL.
+// ResponsesParser parses OpenAI Responses API JSON into LIL.
 type ResponsesParser struct{}
 
 func (p *ResponsesParser) ParseRequest(body []byte) (*Program, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("ail: parse responses request: %w", err)
+		return nil, fmt.Errorf("lil: parse responses request: %w", err)
 	}
 
 	prog := NewProgram()

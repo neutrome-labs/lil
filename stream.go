@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/json"
@@ -24,7 +24,7 @@ import (
 //
 // Usage in an HTTP streaming proxy:
 //
-//	conv, _ := ail.NewStreamConverter(ail.StyleAnthropic, ail.StyleChatCompletions)
+//	conv, _ := lil.NewStreamConverter(lil.StyleAnthropic, lil.StyleChatCompletions)
 //	for _, chunk := range upstreamChunks {
 //	    outputs, err := conv.Push(chunk)
 //	    if err != nil { /* handle */ }
@@ -67,11 +67,11 @@ type pendingToolCall struct {
 func NewStreamConverter(from, to Style) (*StreamConverter, error) {
 	parser, err := GetStreamChunkParser(from)
 	if err != nil {
-		return nil, fmt.Errorf("ail: stream converter source: %w", err)
+		return nil, fmt.Errorf("lil: stream converter source: %w", err)
 	}
 	emitter, err := GetStreamChunkEmitter(to)
 	if err != nil {
-		return nil, fmt.Errorf("ail: stream converter target: %w", err)
+		return nil, fmt.Errorf("lil: stream converter target: %w", err)
 	}
 
 	// Google GenAI needs complete function calls in one chunk,
@@ -100,13 +100,13 @@ func (c *StreamConverter) Push(sourceChunk []byte) ([][]byte, error) {
 
 	parsed, err := c.parser.ParseStreamChunk(sourceChunk)
 	if err != nil {
-		return nil, fmt.Errorf("ail: stream convert parse: %w", err)
+		return nil, fmt.Errorf("lil: stream convert parse: %w", err)
 	}
 
 	return c.pushProgramLocked(parsed)
 }
 
-// PushProgram processes an already-parsed AIL program through the converter.
+// PushProgram processes an already-parsed LIL program through the converter.
 // Use this when the program has been obtained separately (e.g., from a driver
 // that already parsed the upstream chunk, or after plugin modification).
 //
@@ -137,7 +137,7 @@ func (c *StreamConverter) pushProgramLocked(parsed *Program) ([][]byte, error) {
 		c.injectMetadata(unit)
 		out, err := c.emitter.EmitStreamChunk(unit)
 		if err != nil {
-			return outputs, fmt.Errorf("ail: stream convert emit: %w", err)
+			return outputs, fmt.Errorf("lil: stream convert emit: %w", err)
 		}
 		if out != nil {
 			outputs = append(outputs, out)
@@ -162,7 +162,7 @@ func (c *StreamConverter) Flush() ([][]byte, error) {
 	c.injectMetadata(toolProg)
 	out, err := c.emitter.EmitStreamChunk(toolProg)
 	if err != nil {
-		return nil, fmt.Errorf("ail: stream convert flush: %w", err)
+		return nil, fmt.Errorf("lil: stream convert flush: %w", err)
 	}
 	if out == nil {
 		return nil, nil

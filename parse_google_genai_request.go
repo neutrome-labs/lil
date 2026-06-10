@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/json"
@@ -7,13 +7,13 @@ import (
 
 // ─── Google GenAI Parser ─────────────────────────────────────────────────────
 
-// GoogleGenAIParser parses Google GenAI JSON into AIL.
+// GoogleGenAIParser parses Google GenAI JSON into LIL.
 type GoogleGenAIParser struct{}
 
 func (p *GoogleGenAIParser) ParseRequest(body []byte) (*Program, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("ail: parse google genai request: %w", err)
+		return nil, fmt.Errorf("lil: parse google genai request: %w", err)
 	}
 
 	prog := NewProgram()

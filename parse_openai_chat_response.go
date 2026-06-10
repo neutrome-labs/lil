@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 func (p *ChatCompletionsParser) ParseResponse(body []byte) (*Program, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("ail: parse chat completions response: %w", err)
+		return nil, fmt.Errorf("lil: parse chat completions response: %w", err)
 	}
 
 	prog := NewProgram()

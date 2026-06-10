@@ -7,52 +7,52 @@ import (
 	"testing"
 	"time"
 
-	"github.com/neutrome-labs/ail"
-	"github.com/neutrome-labs/ail/manip"
+	"github.com/neutrome-labs/lil"
+	"github.com/neutrome-labs/lil/manip"
 )
 
-func toolConversation() *ail.Program {
-	p := ail.NewProgram()
-	p.EmitString(ail.SET_MODEL, "gpt-4o")
-	p.Emit(ail.MSG_START)
-	p.Emit(ail.ROLE_USR)
-	p.EmitString(ail.TXT_CHUNK, "first")
-	p.Emit(ail.MSG_END)
+func toolConversation() *lil.Program {
+	p := lil.NewProgram()
+	p.EmitString(lil.SET_MODEL, "gpt-4o")
+	p.Emit(lil.MSG_START)
+	p.Emit(lil.ROLE_USR)
+	p.EmitString(lil.TXT_CHUNK, "first")
+	p.Emit(lil.MSG_END)
 
-	p.Emit(ail.MSG_START)
-	p.Emit(ail.ROLE_AST)
-	p.EmitString(ail.CALL_START, "call_old")
-	p.EmitString(ail.CALL_NAME, "lookup")
-	p.EmitJSON(ail.CALL_ARGS, json.RawMessage(`{"q":"old"}`))
-	p.Emit(ail.CALL_END)
-	p.Emit(ail.MSG_END)
+	p.Emit(lil.MSG_START)
+	p.Emit(lil.ROLE_AST)
+	p.EmitString(lil.CALL_START, "call_old")
+	p.EmitString(lil.CALL_NAME, "lookup")
+	p.EmitJSON(lil.CALL_ARGS, json.RawMessage(`{"q":"old"}`))
+	p.Emit(lil.CALL_END)
+	p.Emit(lil.MSG_END)
 
-	p.Emit(ail.MSG_START)
-	p.Emit(ail.ROLE_TOOL)
-	p.EmitString(ail.RESULT_START, "call_old")
-	p.EmitString(ail.RESULT_DATA, "old-result")
-	p.Emit(ail.RESULT_END)
-	p.Emit(ail.MSG_END)
+	p.Emit(lil.MSG_START)
+	p.Emit(lil.ROLE_TOOL)
+	p.EmitString(lil.RESULT_START, "call_old")
+	p.EmitString(lil.RESULT_DATA, "old-result")
+	p.Emit(lil.RESULT_END)
+	p.Emit(lil.MSG_END)
 
-	p.Emit(ail.MSG_START)
-	p.Emit(ail.ROLE_USR)
-	p.EmitString(ail.TXT_CHUNK, "second")
-	p.Emit(ail.MSG_END)
+	p.Emit(lil.MSG_START)
+	p.Emit(lil.ROLE_USR)
+	p.EmitString(lil.TXT_CHUNK, "second")
+	p.Emit(lil.MSG_END)
 
-	p.Emit(ail.MSG_START)
-	p.Emit(ail.ROLE_AST)
-	p.EmitString(ail.CALL_START, "call_new")
-	p.EmitString(ail.CALL_NAME, "lookup")
-	p.EmitJSON(ail.CALL_ARGS, json.RawMessage(`{"q":"new"}`))
-	p.Emit(ail.CALL_END)
-	p.Emit(ail.MSG_END)
+	p.Emit(lil.MSG_START)
+	p.Emit(lil.ROLE_AST)
+	p.EmitString(lil.CALL_START, "call_new")
+	p.EmitString(lil.CALL_NAME, "lookup")
+	p.EmitJSON(lil.CALL_ARGS, json.RawMessage(`{"q":"new"}`))
+	p.Emit(lil.CALL_END)
+	p.Emit(lil.MSG_END)
 
-	p.Emit(ail.MSG_START)
-	p.Emit(ail.ROLE_TOOL)
-	p.EmitString(ail.RESULT_START, "call_new")
-	p.EmitString(ail.RESULT_DATA, "new-result")
-	p.Emit(ail.RESULT_END)
-	p.Emit(ail.MSG_END)
+	p.Emit(lil.MSG_START)
+	p.Emit(lil.ROLE_TOOL)
+	p.EmitString(lil.RESULT_START, "call_new")
+	p.EmitString(lil.RESULT_DATA, "new-result")
+	p.Emit(lil.RESULT_END)
+	p.Emit(lil.MSG_END)
 	return p
 }
 
@@ -132,14 +132,14 @@ func TestHandleToolCallAndDispatchCalls(t *testing.T) {
 		t.Fatalf("handled=%v result=%q", handled, result)
 	}
 
-	response := ail.NewProgram()
-	response.Emit(ail.MSG_START)
-	response.Emit(ail.ROLE_AST)
-	response.EmitString(ail.CALL_START, "retrieve_1")
-	response.EmitString(ail.CALL_NAME, DefaultToolName)
-	response.EmitJSON(ail.CALL_ARGS, json.RawMessage(`{"tool_call_id":"call_old"}`))
-	response.Emit(ail.CALL_END)
-	response.Emit(ail.MSG_END)
+	response := lil.NewProgram()
+	response.Emit(lil.MSG_START)
+	response.Emit(lil.ROLE_AST)
+	response.EmitString(lil.CALL_START, "retrieve_1")
+	response.EmitString(lil.CALL_NAME, DefaultToolName)
+	response.EmitJSON(lil.CALL_ARGS, json.RawMessage(`{"tool_call_id":"call_old"}`))
+	response.Emit(lil.CALL_END)
+	response.Emit(lil.MSG_END)
 
 	insts, n, err := kv.DispatchCalls(ctx, response)
 	if err != nil {
@@ -148,7 +148,7 @@ func TestHandleToolCallAndDispatchCalls(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("handled calls = %d", n)
 	}
-	resultProg := &ail.Program{Code: insts}
+	resultProg := &lil.Program{Code: insts}
 	results := resultProg.ToolResults()
 	if len(results) != 1 || results[0].CallID != "retrieve_1" {
 		t.Fatalf("unexpected tool result spans: %#v", results)
@@ -173,7 +173,7 @@ func TestConvertRequestCanAttachKVTools(t *testing.T) {
 	}`)
 	kv := New(WithScope("trace"))
 
-	out, err := manip.ConvertRequest(body, ail.StyleChatCompletions, ail.StyleChatCompletions, kv)
+	out, err := manip.ConvertRequest(body, lil.StyleChatCompletions, lil.StyleChatCompletions, kv)
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}

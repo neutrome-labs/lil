@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/json"
@@ -178,7 +178,7 @@ func TestChatCompletionsToAnthropicConversion(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 
-	t.Logf("AIL Program:\n%s", prog.Disasm())
+	t.Logf("LIL Program:\n%s", prog.Disasm())
 
 	// Emit as Anthropic
 	emitter := &AnthropicEmitter{}
@@ -351,7 +351,7 @@ func TestChatCompletionsResponseParse(t *testing.T) {
 		t.Fatalf("parse response: %v", err)
 	}
 
-	t.Logf("Response AIL:\n%s", prog.Disasm())
+	t.Logf("Response LIL:\n%s", prog.Disasm())
 
 	// Emit back
 	emitter := &ChatCompletionsEmitter{}
@@ -405,7 +405,7 @@ func TestChatCompletionsResponseParsesReasoningField(t *testing.T) {
 		}
 	}
 	if !foundThinking {
-		t.Fatalf("missing reasoning in AIL:\n%s", prog.Disasm())
+		t.Fatalf("missing reasoning in LIL:\n%s", prog.Disasm())
 	}
 
 	out, err := ConvertResponse([]byte(resp), StyleChatCompletions, StyleResponses)
@@ -458,7 +458,7 @@ func TestStreamChunkRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatalf("chunk %d parse: %v", i, err)
 		}
-		t.Logf("Chunk %d AIL:\n%s", i, prog.Disasm())
+		t.Logf("Chunk %d LIL:\n%s", i, prog.Disasm())
 
 		out, err := emitter.EmitStreamChunk(prog)
 		if err != nil {
@@ -774,7 +774,7 @@ func TestAnthropicResponseParse(t *testing.T) {
 		t.Fatalf("parse response: %v", err)
 	}
 
-	t.Logf("Anthropic Response AIL:\n%s", prog.Disasm())
+	t.Logf("Anthropic Response LIL:\n%s", prog.Disasm())
 
 	// Verify structure
 	foundID := false
@@ -838,7 +838,7 @@ func TestAnthropicResponseToolUse(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 
-	t.Logf("Anthropic Tool Use Response AIL:\n%s", prog.Disasm())
+	t.Logf("Anthropic Tool Use Response LIL:\n%s", prog.Disasm())
 
 	foundCall := false
 	for _, inst := range prog.Code {
@@ -875,7 +875,7 @@ func TestGoogleGenAIResponseParse(t *testing.T) {
 		t.Fatalf("parse response: %v", err)
 	}
 
-	t.Logf("Google Response AIL:\n%s", prog.Disasm())
+	t.Logf("Google Response LIL:\n%s", prog.Disasm())
 
 	foundText := false
 	foundDone := false

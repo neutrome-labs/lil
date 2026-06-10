@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 
 // ─── Google GenAI Emitter ────────────────────────────────────────────────────
 
-// GoogleGenAIEmitter converts an AIL Program into Google GenAI JSON.
+// GoogleGenAIEmitter converts an LIL Program into Google GenAI JSON.
 type GoogleGenAIEmitter struct{}
 
 func (e *GoogleGenAIEmitter) EmitRequest(prog *Program) ([]byte, error) {

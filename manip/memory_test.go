@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/neutrome-labs/ail/manip"
+	"github.com/neutrome-labs/lil/manip"
 )
 
 func TestMemoryStoreGetSetDelete(t *testing.T) {

@@ -3,29 +3,29 @@ package slwin
 import (
 	"testing"
 
-	"github.com/neutrome-labs/ail"
+	"github.com/neutrome-labs/lil"
 )
 
-func numberedConversation(n int) *ail.Program {
-	p := ail.NewProgram()
-	p.EmitString(ail.SET_MODEL, "test-model")
-	p.Emit(ail.DEF_START)
-	p.EmitString(ail.DEF_NAME, "lookup")
-	p.Emit(ail.DEF_END)
+func numberedConversation(n int) *lil.Program {
+	p := lil.NewProgram()
+	p.EmitString(lil.SET_MODEL, "test-model")
+	p.Emit(lil.DEF_START)
+	p.EmitString(lil.DEF_NAME, "lookup")
+	p.Emit(lil.DEF_END)
 	for i := 0; i < n; i++ {
-		p.Emit(ail.MSG_START)
+		p.Emit(lil.MSG_START)
 		if i%2 == 0 {
-			p.Emit(ail.ROLE_USR)
+			p.Emit(lil.ROLE_USR)
 		} else {
-			p.Emit(ail.ROLE_AST)
+			p.Emit(lil.ROLE_AST)
 		}
-		p.EmitString(ail.TXT_CHUNK, string(rune('a'+i)))
-		p.Emit(ail.MSG_END)
+		p.EmitString(lil.TXT_CHUNK, string(rune('a'+i)))
+		p.Emit(lil.MSG_END)
 	}
 	return p
 }
 
-func messageTexts(t *testing.T, p *ail.Program) []string {
+func messageTexts(t *testing.T, p *lil.Program) []string {
 	t.Helper()
 	msgs := p.Messages()
 	out := make([]string, 0, len(msgs))

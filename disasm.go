@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"bytes"
@@ -31,7 +31,7 @@ func (p *Program) Disasm() string {
 	for _, inst := range p.Code {
 		// Decrease indent before END opcodes
 		switch inst.Op {
-		case REQ_END, RESP_END, MSG_END, DEF_END, CALL_END, RESULT_END, STREAM_END, THINK_END:
+		case MSG_END, DEF_END, CALL_END, RESULT_END, STREAM_END, THINK_END:
 			indent--
 			if indent < 0 {
 				indent = 0
@@ -86,8 +86,7 @@ func (p *Program) Disasm() string {
 		}
 
 		switch inst.Op {
-		case REQ_START, REQ_YIELD, SUB_CONTENT, SUB_REASON, RESP_START,
-			TXT_CHUNK, DEF_NAME, DEF_DESC, CALL_START, CALL_NAME,
+		case TXT_CHUNK, DEF_NAME, DEF_DESC, CALL_START, CALL_NAME,
 			RESULT_START, RESULT_DATA, RESP_ID, RESP_MODEL, RESP_DONE,
 			SET_MODEL, SET_STOP, STREAM_DELTA,
 			THINK_CHUNK, STREAM_THINK_DELTA, SET_REASON_EFFORT, SET_REASON_MODE:
@@ -124,7 +123,7 @@ func (p *Program) Disasm() string {
 
 		// Increase indent after START opcodes
 		switch inst.Op {
-		case REQ_START, RESP_START, MSG_START, DEF_START, CALL_START, RESULT_START, STREAM_START, THINK_START:
+		case MSG_START, DEF_START, CALL_START, RESULT_START, STREAM_START, THINK_START:
 			indent++
 		}
 	}

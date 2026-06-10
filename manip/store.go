@@ -7,7 +7,7 @@ import (
 )
 
 // ErrNotFound is returned when a stored value does not exist.
-var ErrNotFound = errors.New("ail/manip: key not found")
+var ErrNotFound = errors.New("lil/manip: key not found")
 
 // Store is a small key/value backend interface shared by manips and runtime
 // transforms that need request-scoped persistence.

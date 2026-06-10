@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/json"
@@ -7,13 +7,13 @@ import (
 
 // ─── OpenAI Chat Completions Parser ──────────────────────────────────────────
 
-// ChatCompletionsParser parses OpenAI Chat Completions JSON into AIL.
+// ChatCompletionsParser parses OpenAI Chat Completions JSON into LIL.
 type ChatCompletionsParser struct{}
 
 func (p *ChatCompletionsParser) ParseRequest(body []byte) (*Program, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("ail: parse chat completions request: %w", err)
+		return nil, fmt.Errorf("lil: parse chat completions request: %w", err)
 	}
 
 	prog := NewProgram()
@@ -165,7 +165,7 @@ func (p *ChatCompletionsParser) ParseRequest(body []byte) (*Program, error) {
 	if msgsRaw, ok := raw["messages"]; ok {
 		var rawMsgs []json.RawMessage
 		if err := json.Unmarshal(msgsRaw, &rawMsgs); err != nil {
-			return nil, fmt.Errorf("ail: parse messages: %w", err)
+			return nil, fmt.Errorf("lil: parse messages: %w", err)
 		}
 
 		for _, rm := range rawMsgs {

@@ -1,4 +1,4 @@
-package ail
+package lil
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 
 // ─── OpenAI Chat Completions Emitter ─────────────────────────────────────────
 
-// ChatCompletionsEmitter converts an AIL Program into OpenAI Chat Completions JSON.
+// ChatCompletionsEmitter converts an LIL Program into OpenAI Chat Completions JSON.
 type ChatCompletionsEmitter struct{}
 
 func (e *ChatCompletionsEmitter) EmitRequest(prog *Program) ([]byte, error) {

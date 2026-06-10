@@ -1,27 +1,8 @@
-package ail
+package lil
 
-import (
-	"context"
-	"encoding/json"
-)
+import "encoding/json"
 
-// ─── Context helpers ─────────────────────────────────────────────────────────
-
-type programContextKey struct{}
-
-// ContextWithProgram stores an AIL program in a context.
-// Used by recursive handler plugins to pass a program to re-invocations without re-serializing.
-func ContextWithProgram(ctx context.Context, prog *Program) context.Context {
-	return context.WithValue(ctx, programContextKey{}, prog)
-}
-
-// ProgramFromContext retrieves an AIL program from context, if present.
-func ProgramFromContext(ctx context.Context) (*Program, bool) {
-	prog, ok := ctx.Value(programContextKey{}).(*Program)
-	return prog, ok
-}
-
-// Instruction is a single AIL instruction with its opcode and typed argument.
+// Instruction is a single LIL instruction with its opcode and typed argument.
 type Instruction struct {
 	Op   Opcode
 	Str  string          // used by TXT_CHUNK, DEF_NAME, SET_MODEL, CALL_START, etc.

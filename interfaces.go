@@ -1,47 +1,39 @@
-package ail
+package lil
 
 // ─── Parser interface ────────────────────────────────────────────────────────
 
-// Parser converts a provider-specific JSON request into an AIL Program.
+// Parser converts a provider-specific JSON request into an LIL Program.
 type Parser interface {
-	// ParseRequest converts a raw JSON request body into an AIL program.
+	// ParseRequest converts a raw JSON request body into an LIL program.
 	ParseRequest(body []byte) (*Program, error)
 }
 
-// Emitter converts an AIL Program into a provider-specific JSON request.
+// Emitter converts an LIL Program into a provider-specific JSON request.
 type Emitter interface {
-	// EmitRequest converts an AIL program into a raw JSON request body.
+	// EmitRequest converts an LIL program into a raw JSON request body.
 	EmitRequest(prog *Program) ([]byte, error)
 }
 
-// RequestSequenceEmitter emits materialized request bodies from a sequenced
-// AIL program.
-type RequestSequenceEmitter interface {
-	// EmitRequests converts all currently materializable requests into raw JSON
-	// request bodies. Referenced outputs must be present in outputs.
-	EmitRequests(prog *Program, outputs map[string]RequestOutput) ([]EmittedRequest, error)
-}
-
-// ResponseParser converts a provider-specific JSON response into an AIL Program.
+// ResponseParser converts a provider-specific JSON response into an LIL Program.
 type ResponseParser interface {
-	// ParseResponse converts a raw JSON response body into an AIL program.
+	// ParseResponse converts a raw JSON response body into an LIL program.
 	ParseResponse(body []byte) (*Program, error)
 }
 
-// ResponseEmitter converts an AIL Program into a provider-specific JSON response.
+// ResponseEmitter converts an LIL Program into a provider-specific JSON response.
 type ResponseEmitter interface {
-	// EmitResponse converts an AIL program into a raw JSON response body.
+	// EmitResponse converts an LIL program into a raw JSON response body.
 	EmitResponse(prog *Program) ([]byte, error)
 }
 
-// StreamChunkParser converts a provider-specific streaming chunk into AIL instructions.
+// StreamChunkParser converts a provider-specific streaming chunk into LIL instructions.
 type StreamChunkParser interface {
-	// ParseStreamChunk converts a streaming chunk into an AIL program (partial).
+	// ParseStreamChunk converts a streaming chunk into an LIL program (partial).
 	ParseStreamChunk(body []byte) (*Program, error)
 }
 
-// StreamChunkEmitter converts AIL stream instructions into provider-specific chunk JSON.
+// StreamChunkEmitter converts LIL stream instructions into provider-specific chunk JSON.
 type StreamChunkEmitter interface {
-	// EmitStreamChunk converts an AIL program (partial, from a stream chunk) into JSON.
+	// EmitStreamChunk converts an LIL program (partial, from a stream chunk) into JSON.
 	EmitStreamChunk(prog *Program) ([]byte, error)
 }

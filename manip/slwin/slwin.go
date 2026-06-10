@@ -1,12 +1,12 @@
-// Package slwin provides a transparent sliding-window AIL manipulation.
+// Package slwin provides a transparent sliding-window LIL manipulation.
 package slwin
 
 import (
 	"strconv"
 	"strings"
 
-	"github.com/neutrome-labs/ail"
-	"github.com/neutrome-labs/ail/manip"
+	"github.com/neutrome-labs/lil"
+	"github.com/neutrome-labs/lil/manip"
 )
 
 const (
@@ -81,7 +81,7 @@ func FromParams(params string) *SlidingWindow {
 }
 
 // Apply applies the sliding-window transform to prog.
-func (s *SlidingWindow) Apply(prog *ail.Program) (*ail.Program, error) {
+func (s *SlidingWindow) Apply(prog *lil.Program) (*lil.Program, error) {
 	if prog == nil {
 		return nil, nil
 	}
@@ -94,7 +94,7 @@ func (s *SlidingWindow) Apply(prog *ail.Program) (*ail.Program, error) {
 // Apply returns a copy of prog with only the requested leading and trailing
 // messages retained. If the window covers all messages, prog is returned
 // unchanged.
-func Apply(prog *ail.Program, keepEnd, keepStart int) *ail.Program {
+func Apply(prog *lil.Program, keepEnd, keepStart int) *lil.Program {
 	if prog == nil {
 		return nil
 	}
@@ -121,7 +121,7 @@ func Apply(prog *ail.Program, keepEnd, keepStart int) *ail.Program {
 		}
 	}
 
-	var toRemove []ail.MessageSpan
+	var toRemove []lil.MessageSpan
 	for i, msg := range msgs {
 		if !keepSet[i] {
 			toRemove = append(toRemove, msg)

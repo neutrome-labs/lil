@@ -1,10 +1,10 @@
-package ail
+package lil
 
 import (
 	"fmt"
 )
 
-// ─── Converter: any-to-any via AIL ──────────────────────────────────────────
+// ─── Converter: any-to-any via LIL ──────────────────────────────────────────
 
 // GetParser returns the appropriate parser for the given style.
 func GetParser(style Style) (Parser, error) {
@@ -18,7 +18,7 @@ func GetParser(style Style) (Parser, error) {
 	case StyleGoogleGenAI:
 		return &GoogleGenAIParser{}, nil
 	default:
-		return nil, fmt.Errorf("ail: no parser for style %q", style)
+		return nil, fmt.Errorf("lil: no parser for style %q", style)
 	}
 }
 
@@ -34,7 +34,7 @@ func GetEmitter(style Style) (Emitter, error) {
 	case StyleGoogleGenAI:
 		return &GoogleGenAIEmitter{}, nil
 	default:
-		return nil, fmt.Errorf("ail: no emitter for style %q", style)
+		return nil, fmt.Errorf("lil: no emitter for style %q", style)
 	}
 }
 
@@ -50,7 +50,7 @@ func GetResponseParser(style Style) (ResponseParser, error) {
 	case StyleGoogleGenAI:
 		return &GoogleGenAIParser{}, nil
 	default:
-		return nil, fmt.Errorf("ail: no response parser for style %q", style)
+		return nil, fmt.Errorf("lil: no response parser for style %q", style)
 	}
 }
 
@@ -66,7 +66,7 @@ func GetResponseEmitter(style Style) (ResponseEmitter, error) {
 	case StyleGoogleGenAI:
 		return &GoogleGenAIEmitter{}, nil
 	default:
-		return nil, fmt.Errorf("ail: no response emitter for style %q", style)
+		return nil, fmt.Errorf("lil: no response emitter for style %q", style)
 	}
 }
 
@@ -82,7 +82,7 @@ func GetStreamChunkParser(style Style) (StreamChunkParser, error) {
 	case StyleGoogleGenAI:
 		return &GoogleGenAIParser{}, nil
 	default:
-		return nil, fmt.Errorf("ail: no stream chunk parser for style %q", style)
+		return nil, fmt.Errorf("lil: no stream chunk parser for style %q", style)
 	}
 }
 
@@ -98,13 +98,13 @@ func GetStreamChunkEmitter(style Style) (StreamChunkEmitter, error) {
 	case StyleGoogleGenAI:
 		return &GoogleGenAIEmitter{}, nil
 	default:
-		return nil, fmt.Errorf("ail: no stream chunk emitter for style %q", style)
+		return nil, fmt.Errorf("lil: no stream chunk emitter for style %q", style)
 	}
 }
 
 // ─── Convenience: Convert request from one style to another ──────────────────
 
-// ConvertRequest converts a request body from one style to another via AIL.
+// ConvertRequest converts a request body from one style to another via LIL.
 // If from == to, it's a passthrough (still parses/emits for normalization).
 func ConvertRequest(body []byte, from, to Style) ([]byte, error) {
 	parser, err := GetParser(from)

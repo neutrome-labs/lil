@@ -7,24 +7,24 @@ import (
 	"fmt"
 	"syscall/js"
 
-	"github.com/neutrome-labs/ail"
-	"github.com/neutrome-labs/ail/manip"
-	"github.com/neutrome-labs/ail/manip/kvtools"
-	"github.com/neutrome-labs/ail/manip/slwin"
+	"github.com/neutrome-labs/lil"
+	"github.com/neutrome-labs/lil/manip"
+	"github.com/neutrome-labs/lil/manip/kvtools"
+	"github.com/neutrome-labs/lil/manip/slwin"
 )
 
-const styleAIL = "ail"
+const styleLIL = "lil"
 
 func main() {
-	js.Global().Set("convertAIL", js.FuncOf(convertAIL))
-	js.Global().Set("ailWasmReady", true)
+	js.Global().Set("convertLIL", js.FuncOf(convertLIL))
+	js.Global().Set("lilWasmReady", true)
 	select {}
 }
 
-func convertAIL(this js.Value, args []js.Value) any {
+func convertLIL(this js.Value, args []js.Value) any {
 	resp := js.Global().Get("Object").New()
 	if len(args) != 1 {
-		resp.Set("error", "convertAIL expects one request object")
+		resp.Set("error", "convertLIL expects one request object")
 		return resp
 	}
 
@@ -47,7 +47,7 @@ func convertAIL(this js.Value, args []js.Value) any {
 		resp.Set("error", err.Error())
 		return resp
 	}
-	if to != styleAIL {
+	if to != styleLIL {
 		out = prettyJSON(out)
 	}
 
@@ -56,12 +56,12 @@ func convertAIL(this js.Value, args []js.Value) any {
 	return resp
 }
 
-func parse(input []byte, req js.Value) (*ail.Program, error) {
+func parse(input []byte, req js.Value) (*lil.Program, error) {
 	from := req.Get("fromStyle").String()
-	if from == styleAIL {
-		prog, err := ail.Asm(string(input))
+	if from == styleLIL {
+		prog, err := lil.Asm(string(input))
 		if err != nil {
-			return nil, fmt.Errorf("AIL parse error: %w", err)
+			return nil, fmt.Errorf("LIL parse error: %w", err)
 		}
 		return prog, nil
 	}
@@ -73,22 +73,22 @@ func parse(input []byte, req js.Value) (*ail.Program, error) {
 	return parser(input)
 }
 
-func parserFor(style, typ string) (func([]byte) (*ail.Program, error), error) {
+func parserFor(style, typ string) (func([]byte) (*lil.Program, error), error) {
 	switch typ {
 	case "request":
-		parser, err := ail.GetParser(ail.Style(style))
+		parser, err := lil.GetParser(lil.Style(style))
 		if err != nil {
 			return nil, err
 		}
 		return parser.ParseRequest, nil
 	case "response":
-		parser, err := ail.GetResponseParser(ail.Style(style))
+		parser, err := lil.GetResponseParser(lil.Style(style))
 		if err != nil {
 			return nil, err
 		}
 		return parser.ParseResponse, nil
 	case "stream_chunk":
-		parser, err := ail.GetStreamChunkParser(ail.Style(style))
+		parser, err := lil.GetStreamChunkParser(lil.Style(style))
 		if err != nil {
 			return nil, err
 		}
@@ -98,29 +98,26 @@ func parserFor(style, typ string) (func([]byte) (*ail.Program, error), error) {
 	}
 }
 
-func emit(prog *ail.Program, style, typ string) ([]byte, error) {
-	if style == styleAIL {
+func emit(prog *lil.Program, style, typ string) ([]byte, error) {
+	if style == styleLIL {
 		return []byte(prog.Disasm()), nil
 	}
 
 	switch typ {
 	case "request":
-		emitter, err := ail.GetEmitter(ail.Style(style))
+		emitter, err := lil.GetEmitter(lil.Style(style))
 		if err != nil {
 			return nil, err
 		}
-		if shouldEmitRequestSequence(prog) {
-			return emitRequestSequence(emitter, prog)
-		}
 		return emitter.EmitRequest(prog)
 	case "response":
-		emitter, err := ail.GetResponseEmitter(ail.Style(style))
+		emitter, err := lil.GetResponseEmitter(lil.Style(style))
 		if err != nil {
 			return nil, err
 		}
 		return emitter.EmitResponse(prog)
 	case "stream_chunk":
-		emitter, err := ail.GetStreamChunkEmitter(ail.Style(style))
+		emitter, err := lil.GetStreamChunkEmitter(lil.Style(style))
 		if err != nil {
 			return nil, err
 		}
@@ -130,7 +127,7 @@ func emit(prog *ail.Program, style, typ string) ([]byte, error) {
 	}
 }
 
-func applyManips(prog *ail.Program, req js.Value) (*ail.Program, error) {
+func applyManips(prog *lil.Program, req js.Value) (*lil.Program, error) {
 	if req.Type() != js.TypeObject {
 		return prog, nil
 	}

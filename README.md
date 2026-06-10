@@ -1,15 +1,15 @@
-# AIL — AI Intermediate Language
+# LIL — AI Intermediate Language
 
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 
-```
-go get github.com/neutrome-labs/ail
+```bash
+go get github.com/neutrome-labs/lil
 ```
 
-AIL is a stack-based intermediate representation for AI provider interactions.
-It decouples **parsing** (ingesting provider-specific JSON into opcodes) from
-**emitting** (writing opcodes back out as provider-specific JSON), enabling
-any-to-any conversion between different AI provider APIs.
+LIL is a stack-based intermediate representation for AI provider interactions.
+It decouples parsing provider-specific JSON into opcodes from emitting those
+opcodes back into provider-specific JSON, enabling any-to-any conversion
+between supported APIs.
 
 Supported providers:
 
@@ -25,123 +25,180 @@ Supported providers:
 ### Convert a request from one provider format to another
 
 ```go
-import "github.com/neutrome-labs/ail"
+import "github.com/neutrome-labs/lil"
 
-// OpenAI Chat Completions → Anthropic Messages
-out, err := ail.ConvertRequest(body, ail.StyleChatCompletions, ail.StyleAnthropic)
-
-// Anthropic Messages → Google GenAI
-out, err := ail.ConvertRequest(body, ail.StyleAnthropic, ail.StyleGoogleGenAI)
+out, err := lil.ConvertRequest(
+    body,
+    lil.StyleChatCompletions,
+    lil.StyleAnthropic,
+)
 ```
 
 ### Convert a non-streaming response
 
 ```go
-out, err := ail.ConvertResponse(body, ail.StyleAnthropic, ail.StyleChatCompletions)
+out, err := lil.ConvertResponse(
+    body,
+    lil.StyleAnthropic,
+    lil.StyleChatCompletions,
+)
 ```
 
-### Convert streaming chunks in real-time
+### Convert streaming chunks in real time
+
+Use `ConvertStreamChunk` only for stateless cases. For real provider streams,
+use `StreamConverter` so metadata and split tool-call fragments are preserved.
 
 ```go
-conv, err := ail.NewStreamConverter(ail.StyleAnthropic, ail.StyleChatCompletions)
+conv, err := lil.NewStreamConverter(
+    lil.StyleAnthropic,
+    lil.StyleChatCompletions,
+)
+if err != nil {
+    return err
+}
 
 for _, chunk := range upstreamChunks {
     outputs, err := conv.Push(chunk)
+    if err != nil {
+        return err
+    }
     for _, out := range outputs {
         fmt.Fprintf(w, "data: %s\n\n", out)
         flusher.Flush()
     }
 }
-// Flush buffered tool calls at end of stream
-final, _ := conv.Flush()
+
+final, err := conv.Flush()
+if err != nil {
+    return err
+}
 for _, out := range final {
     fmt.Fprintf(w, "data: %s\n\n", out)
+    flusher.Flush()
 }
 ```
 
-### Work with the AIL program directly
+### Parse, inspect, and emit a program directly
 
 ```go
-parser, _ := ail.GetParser(ail.StyleChatCompletions)
+parser, _ := lil.GetParser(lil.StyleChatCompletions)
 prog, _ := parser.ParseRequest(body)
 
-// Inspect
-fmt.Println(prog.GetModel())    // "gpt-4o"
-fmt.Println(prog.IsStreaming())  // true
-
-// Modify the program
-prog.SetModel("claude-sonnet-4-20250514")
-
-// Debug: print human-readable disassembly
+fmt.Println(prog.GetModel())
+fmt.Println(prog.IsStreaming())
 fmt.Println(prog.Disasm())
 
-// Emit to a different provider
-emitter, _ := ail.GetEmitter(ail.StyleAnthropic)
+prog.SetModel("claude-sonnet-4-20250514")
+
+emitter, _ := lil.GetEmitter(lil.StyleAnthropic)
 out, _ := emitter.EmitRequest(prog)
 ```
 
-### Attach manipulations to conversion flows
+## Program Helpers
+
+LIL exposes helpers for traversing and reshaping `*lil.Program` without
+manually editing opcode slices.
+
+### Inspect messages and tool calls
+
+```go
+msgs := prog.Messages()
+for _, msg := range msgs {
+    fmt.Println(msg.Role, prog.MessageText(msg))
+}
+
+for _, call := range prog.ToolCalls() {
+    fmt.Println(call.CallID, call.Name)
+}
+
+if lastUser, ok := prog.LastUserMessage(); ok {
+    fmt.Println("last user:", prog.MessageText(lastUser))
+}
+```
+
+### Trim context and adjust prompts
+
+```go
+trimmed := prog.TruncateMessages(8)
+trimmed = trimmed.PrependSystemPrompt("Answer briefly.")
+trimmed = trimmed.AppendUserMessage("Summarize the last response.")
+```
+
+These helpers return new programs and do not mutate the original unless the API
+explicitly says so.
+
+## Manips
+
+The `manip` packages are composable program-to-program transforms that run
+between parse and emit.
+
+### Sliding-window context trimming
+
+```go
+import (
+    "github.com/neutrome-labs/lil"
+    "github.com/neutrome-labs/lil/manip"
+    "github.com/neutrome-labs/lil/manip/slwin"
+)
+
+out, err := manip.ConvertRequest(
+    body,
+    lil.StyleChatCompletions,
+    lil.StyleAnthropic,
+    slwin.New(
+        slwin.WithKeepStart(1),
+        slwin.WithKeepEnd(10),
+    ),
+)
+```
+
+Router-style parameter syntax is supported too:
+
+- `""` keeps `1` message from the start and `10` from the end
+- `"15"` keeps `1` from the start and `15` from the end
+- `"15:3"` keeps `3` from the start and `15` from the end
+
+```go
+window := slwin.FromParams("15:3")
+emitter := manip.AttachEmitter(&lil.AnthropicEmitter{}, window)
+out, err := emitter.EmitRequest(prog)
+```
+
+### Cache older tool results with KVTools
 
 ```go
 import (
     "context"
     "time"
 
-    "github.com/neutrome-labs/ail"
-    "github.com/neutrome-labs/ail/manip"
-    "github.com/neutrome-labs/ail/manip/kvtools"
-    "github.com/neutrome-labs/ail/manip/slwin"
+    "github.com/neutrome-labs/lil"
+    "github.com/neutrome-labs/lil/manip"
+    "github.com/neutrome-labs/lil/manip/kvtools"
 )
 
-out, err := manip.ConvertRequest(
-    body,
-    ail.StyleChatCompletions,
-    ail.StyleAnthropic,
-    slwin.New(slwin.WithKeepStart(1), slwin.WithKeepEnd(10)),
-)
-
-converter, err := manip.NewRequestConverter(
-    ail.StyleChatCompletions,
-    ail.StyleAnthropic,
-    slwin.FromParams("15:3"),
-)
-out, err = converter.Convert(body)
-
-// Router-compatible parameter syntax is supported too:
-// "" -> keep 1 from start and 10 from end
-// "15" -> keep 1 from start and 15 from end
-// "15:3" -> keep 3 from start and 15 from end
-window := slwin.FromParams("15:3")
-emitter := manip.AttachEmitter(&ail.AnthropicEmitter{}, window)
-out, err = emitter.EmitRequest(prog)
-```
-
-### Cache old tool results with KVTools
-
-```go
 toolCache := kvtools.New(
-    kvtools.WithStore(myStore), // any manip.Store implementation
+    kvtools.WithStore(myStore),
     kvtools.WithTTL(30*time.Minute),
 )
 
 ctx := kvtools.ContextWithScope(context.Background(), traceID)
 converter, err := manip.NewRequestConverter(
-    ail.StyleChatCompletions,
-    ail.StyleAnthropic,
+    lil.StyleChatCompletions,
+    lil.StyleAnthropic,
     toolCache,
 )
 out, err := converter.ConvertContext(ctx, body)
 ```
 
-`kvtools` caches older completed tool-result payloads, strips their
-`RESULT_DATA` from the prompt, and injects a `get_tool_result` tool definition.
-Consumers can serve that tool from any inference loop:
+`kvtools` strips older `RESULT_DATA` payloads from the prompt, stores them in a
+`manip.Store`, and injects a retrieval tool definition:
 
 ```go
 result, handled, err := toolCache.HandleToolCall(ctx, name, argsJSON)
 ```
 
-Cache backends implement `manip.Store`:
+Cache backends implement:
 
 ```go
 type Store interface {
@@ -151,128 +208,39 @@ type Store interface {
 }
 ```
 
-### Compose sequential requests
+## Assembly and Binary Forms
 
-AIL can represent multiple executable requests in one program. The consumer app
-materializes and executes each request in order, captures its response, and uses
-that captured output to resolve later `SUB_CONTENT` or `SUB_REASON` opcodes.
-Parsed responses can also be stored as `RESP_START`...`RESP_END` blocks and
-loaded with `CaptureResponseOutputs`.
-
-```asm
-REQ_START smart
-  REQ_YIELD none
-  SET_MODEL smart-model
-  MSG_START
-    ROLE_USR
-    TXT_CHUNK Customer prompt
-  MSG_END
-REQ_END
-
-REQ_START localize
-  REQ_YIELD content
-  SET_MODEL localizer-model
-  SET_STREAM
-  MSG_START
-    ROLE_USR
-    TXT_CHUNK Localize this:
-    SUB_CONTENT smart.content
-  MSG_END
-REQ_END
-```
+### Disassemble and reassemble programs
 
 ```go
-outputs := map[string]ail.RequestOutput{}
-for _, span := range prog.Requests() {
-    unit, err := prog.MaterializeRequest(span, outputs)
-    if err != nil { return err }
+text := prog.Disasm()
+roundTripped, err := lil.Asm(text)
+```
 
-    body, err := emitter.EmitRequest(unit.Program)
-    if err != nil { return err }
+`Disasm()` produces a human-readable assembly listing, and `Asm()` parses that
+listing back into a `Program`.
 
-    responseProgram := callModelAndParse(body)
-    outputs[unit.ID] = ail.CaptureRequestOutput(responseProgram)
+### Encode to the LIL binary format
 
-    switch unit.Yield {
-    case ail.YieldContent:
-        write(outputs[unit.ID].Content)
-    case ail.YieldReasoning:
-        write(outputs[unit.ID].Reasoning)
-    case ail.YieldBoth:
-        write(outputs[unit.ID].Reasoning + outputs[unit.ID].Content)
-    }
+```go
+var buf bytes.Buffer
+if err := prog.Encode(&buf); err != nil {
+    return err
+}
+
+decoded, err := lil.Decode(&buf)
+if err != nil {
+    return err
 }
 ```
 
-The `manip/chain` package appends a follow-up request:
-
-```go
-prog, err = chain.New(
-    "Suggest next steps.",
-    chain.WithModel("suggestion-model"),
-).Apply(prog)
-```
-
-### Runtime stream transforms
-
-Static manips rewrite one AIL program. Runtime transforms operate on streams of
-AIL chunks and can call models while data is flowing. The shared `transform`
-package defines the channel contracts:
-
-```go
-type Executor interface {
-    Execute(ctx context.Context, req *ail.RequestUnit) transform.Stream
-}
-
-type RuntimeTransform interface {
-    Apply(ctx context.Context, in transform.Stream) transform.Stream
-}
-```
-
-`transform/chain` buffers selected source output, sends it to a chained
-executor, and emits the chained response as replacement stream chunks. Chained
-requests run in order and include prior source/output history so streaming
-translation can stay consistent across segments. Per-segment terminal events are
-suppressed, so the client sees one logical stream. This is useful for replacing
-raw model reasoning with short captions from a smaller model:
-
-```go
-captioner := transformchain.New(
-    transformchain.WithExecutor(smallModel),
-    transformchain.WithPrompt("Write a short caption for this reasoning segment."),
-    transformchain.WithModel("caption-model"),
-    transformchain.WithSourceField(transformchain.SourceReasoning),
-    transformchain.WithTargetChannel(transformchain.TargetReasoning),
-    transformchain.WithFlushEveryChars(800),
-)
-
-out := captioner.Apply(ctx, sourceStream)
-for ev := range out {
-    if ev.Err != nil { return ev.Err }
-    emitChunk(ev.Program)
-}
-```
-
-By default, selected source chunks are stripped, so raw reasoning is not emitted.
-Use `WithIncludeSource(true)` when the chained output should augment rather than
-replace the source stream. Shared helpers such as `transform.FanOut`,
-`transform.Merge`, and `transform.ParallelMap` are available for future runtime
-transforms.
-
-### Pass programs through context
-
-```go
-// Store in context (avoids re-serialization in recursive handler chains)
-ctx = ail.ContextWithProgram(ctx, prog)
-
-// Retrieve later
-prog, ok := ail.ProgramFromContext(ctx)
-```
+The binary form preserves the opcode stream and side-buffer payloads for
+compact transport or storage.
 
 ## Example: End-to-End Conversion
 
 ```jsonc
-// Input: OpenAI Chat Completions Request
+// Input: OpenAI Chat Completions request
 {
   "model": "gpt-5-mini",
   "messages": [
@@ -285,7 +253,7 @@ prog, ok := ail.ProgramFromContext(ctx)
 ```
 
 ```asm
-; AIL Representation (prog.Disasm() output)
+; LIL representation (prog.Disasm() output)
 SET_MODEL gpt-5-mini
 MSG_START
   ROLE_USR
@@ -294,7 +262,7 @@ MSG_END
 ```
 
 ```jsonc
-// Output: OpenAI Responses API Request (via EmitRequest)
+// Output: OpenAI Responses request
 {
   "model": "gpt-5-mini",
   "input": [
@@ -313,126 +281,7 @@ MSG_END
 
 ## Design Principles
 
-1. **Zero-Copy Where Possible** — Large payloads (images, audio) are stored in a side buffer and referenced by index. The instruction stream itself contains only opcodes and lightweight arguments.
-2. **Stack-Based** — The emitter processes opcodes linearly. No recursive descent needed.
-3. **Provider-Agnostic Core** — The opcode set covers the common denominator. Provider-specific parameters are passed through via `SET_META` and `EXT_DATA`.
-4. **Binary Wire Format** — Each opcode is a single byte, enabling fast internal transfer and comparison.
-
-## Architecture
-
-### Interfaces
-
-Every provider is implemented as a pair of structs — a **Parser** and an **Emitter**. They satisfy up to three interface pairs each:
-
-```go
-// Request conversion
-type Parser  interface { ParseRequest(body []byte) (*Program, error) }
-type Emitter interface { EmitRequest(prog *Program) ([]byte, error) }
-
-// Non-streaming response conversion
-type ResponseParser  interface { ParseResponse(body []byte) (*Program, error) }
-type ResponseEmitter interface { EmitResponse(prog *Program) ([]byte, error) }
-
-// Streaming chunk conversion
-type StreamChunkParser  interface { ParseStreamChunk(body []byte) (*Program, error) }
-type StreamChunkEmitter interface { EmitStreamChunk(prog *Program) ([]byte, error) }
-```
-
-Use the factory functions to get the right parser/emitter for a style:
-
-```go
-ail.GetParser(style)             // → Parser
-ail.GetEmitter(style)            // → Emitter
-ail.GetResponseParser(style)     // → ResponseParser
-ail.GetResponseEmitter(style)    // → ResponseEmitter
-ail.GetStreamChunkParser(style)  // → StreamChunkParser
-ail.GetStreamChunkEmitter(style) // → StreamChunkEmitter
-```
-
-### Program
-
-`Program` holds an ordered list of `Instruction`s plus a side-buffer for large binary blobs:
-
-```go
-type Program struct {
-    Code    []Instruction
-    Buffers [][]byte
-}
-
-type Instruction struct {
-    Op   Opcode
-    Str  string           // TXT_CHUNK, DEF_NAME, SET_MODEL, CALL_START, etc.
-    Num  float64          // SET_TEMP, SET_TOPP
-    Int  int32            // SET_MAX
-    JSON json.RawMessage  // DEF_SCHEMA, CALL_ARGS, USAGE, EXT_DATA, STREAM_TOOL_DELTA
-    Key  string           // SET_META, EXT_DATA (key part)
-    Ref  uint32           // IMG_REF, AUD_REF, TXT_REF, FILE_REF, VID_REF
-}
-```
-
-Programs support building, querying, cloning, appending, and disassembly:
-
-```go
-p := ail.NewProgram()
-p.EmitString(ail.SET_MODEL, "gpt-4o")
-p.EmitFloat(ail.SET_TEMP, 0.7)
-p.Emit(ail.MSG_START)
-p.Emit(ail.ROLE_USR)
-p.EmitString(ail.TXT_CHUNK, "Hello")
-p.Emit(ail.MSG_END)
-fmt.Println(p.GetModel())     // "gpt-4o"
-fmt.Println(p.IsStreaming())   // false
-fmt.Println(p.Len())          // 7
-
-clone := p.Clone()             // deep copy
-merged := p.Append(other)     // concatenate (re-indexes buffer refs)
-```
-
-### StreamConverter
-
-`StreamConverter` handles stateful, real-time streaming translation between providers. It manages:
-
-- **Metadata carry-forward** — `RESP_ID` and `RESP_MODEL` from the first chunk are injected into all subsequent emitted chunks (some formats require this on every event).
-- **Event splitting** — One source event may produce multiple output events (e.g., Anthropic requires separate SSE events per content type).
-- **Tool call buffering** — Targets that require complete function calls in a single chunk (e.g., Google GenAI) buffer `STREAM_TOOL_DELTA` fragments until flushed.
-
-```go
-conv, _ := ail.NewStreamConverter(from, to)
-
-// Push raw bytes (parses internally)
-outputs, _ := conv.Push(chunk)
-
-// Or push an already-parsed program (useful after plugin modification)
-outputs, _ := conv.PushProgram(prog)
-
-// Flush remaining buffered data at end of stream
-final, _ := conv.Flush()
-```
-
-## Stream Conversion Edge Cases
-
-The `StreamConverter` handles several structural mismatches:
-
-- **Anthropic targets** require each event type (text delta, tool delta, start, stop) to be a separate SSE event with a different JSON structure — so one source chunk may produce multiple output events.
-- **Google GenAI targets** require complete function calls in a single chunk — so tool-call argument deltas are buffered until `Flush()`.
-- **Metadata injection** — Some formats (OpenAI) require `id` and `model` on every chunk, while others (Anthropic) send them only once. The converter remembers and injects as needed.
-
-### Program Manipulation (Plugins)
-
-Plugins operate on the `Program` directly rather than provider-specific JSON:
-
-```go
-// Inject a system prompt at the beginning
-prefix := ail.NewProgram()
-prefix.Emit(ail.MSG_START)
-prefix.Emit(ail.ROLE_SYS)
-prefix.EmitString(ail.TXT_CHUNK, "Always be helpful and safe.")
-prefix.Emit(ail.MSG_END)
-result := prefix.Append(prog) // buffer refs are re-indexed automatically
-```
-
-## Reference Docs
-
-- [Opcode reference](docs/opcodes.md)
-- [Binary encoding and assembly notation](docs/binary.md)
-- [Provider mapping details](docs/provider-mapping.md)
+1. **Provider-agnostic core**: one opcode model, multiple parsers and emitters.
+2. **Linear instruction stream**: emitters can process the program without recursive descent.
+3. **Binary side buffers**: large payloads stay out of the main instruction stream.
+4. **Composable transforms**: context trimming and tool-result caching live above the core IR.

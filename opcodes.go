@@ -1,24 +1,13 @@
-// Package ail implements the AI Intermediate Language — a stack-based bytecode
+// Package lil implements LIL — a stack-based bytecode
 // for representing AI provider interactions in a provider-agnostic way.
 //
 // The IL decouples parsing (ingesting provider-specific JSON into opcodes) from
 // emitting (writing opcodes back out as provider-specific JSON), enabling
 // any-to-any conversion between OpenAI, Anthropic, Google, etc.
-package ail
+package lil
 
 // Opcode is a single-byte instruction identifier.
 type Opcode byte
-
-// ─── Request Sequencing (0x08-0x0F) ─────────────────────────────────────────
-const (
-	REQ_START   Opcode = 0x08 // arg: String — begin executable request block
-	REQ_YIELD   Opcode = 0x09 // arg: String — externally yielded output policy
-	REQ_END     Opcode = 0x0A // End request block
-	SUB_CONTENT Opcode = 0x0B // arg: String — inject previous output as visible content
-	SUB_REASON  Opcode = 0x0C // arg: String — inject previous output as reasoning/thinking
-	RESP_START  Opcode = 0x0D // arg: String — begin captured response block
-	RESP_END    Opcode = 0x0E // End captured response block
-)
 
 // ─── Structure (0x10-0x1F) ────────────────────────────────────────────────────
 const (
@@ -112,9 +101,6 @@ const (
 
 // opcodeNames maps opcodes to their human-readable mnemonic (for Disasm).
 var opcodeNames = map[Opcode]string{
-	REQ_START: "REQ_START", REQ_YIELD: "REQ_YIELD", REQ_END: "REQ_END",
-	SUB_CONTENT: "SUB_CONTENT", SUB_REASON: "SUB_REASON",
-	RESP_START: "RESP_START", RESP_END: "RESP_END",
 	MSG_START: "MSG_START", MSG_END: "MSG_END",
 	ROLE_SYS: "ROLE_SYS", ROLE_USR: "ROLE_USR", ROLE_AST: "ROLE_AST", ROLE_TOOL: "ROLE_TOOL", ROLE_DEV: "ROLE_DEV",
 	TXT_CHUNK: "TXT_CHUNK", IMG_REF: "IMG_REF", AUD_REF: "AUD_REF", TXT_REF: "TXT_REF",
