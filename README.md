@@ -128,18 +128,18 @@ trimmed = trimmed.AppendUserMessage("Summarize the last response.")
 These helpers return new programs and do not mutate the original unless the API
 explicitly says so.
 
-## Manips
+## Go SDK Helpers
 
-The `manip` packages are composable program-to-program transforms that run
-between parse and emit.
+High-level Go authoring helpers now live in
+`github.com/neutrome-labs/lilsdk-go`.
 
 ### Sliding-window context trimming
 
 ```go
 import (
     "github.com/neutrome-labs/lil"
-    "github.com/neutrome-labs/lil/manip"
-    "github.com/neutrome-labs/lil/manip/slwin"
+    "github.com/neutrome-labs/lilsdk-go/manip"
+    "github.com/neutrome-labs/lilsdk-go/manip/slwin"
 )
 
 out, err := manip.ConvertRequest(
@@ -153,18 +153,6 @@ out, err := manip.ConvertRequest(
 )
 ```
 
-Router-style parameter syntax is supported too:
-
-- `""` keeps `1` message from the start and `10` from the end
-- `"15"` keeps `1` from the start and `15` from the end
-- `"15:3"` keeps `3` from the start and `15` from the end
-
-```go
-window := slwin.FromParams("15:3")
-emitter := manip.AttachEmitter(&lil.AnthropicEmitter{}, window)
-out, err := emitter.EmitRequest(prog)
-```
-
 ### Cache older tool results with KVTools
 
 ```go
@@ -173,8 +161,8 @@ import (
     "time"
 
     "github.com/neutrome-labs/lil"
-    "github.com/neutrome-labs/lil/manip"
-    "github.com/neutrome-labs/lil/manip/kvtools"
+    "github.com/neutrome-labs/lilsdk-go/manip"
+    "github.com/neutrome-labs/lilsdk-go/manip/kvtools"
 )
 
 toolCache := kvtools.New(
@@ -191,22 +179,7 @@ converter, err := manip.NewRequestConverter(
 out, err := converter.ConvertContext(ctx, body)
 ```
 
-`kvtools` strips older `RESULT_DATA` payloads from the prompt, stores them in a
-`manip.Store`, and injects a retrieval tool definition:
-
-```go
-result, handled, err := toolCache.HandleToolCall(ctx, name, argsJSON)
-```
-
-Cache backends implement:
-
-```go
-type Store interface {
-    Get(ctx context.Context, key string) (string, error)
-    Set(ctx context.Context, key, value string, ttl time.Duration) error
-    Delete(ctx context.Context, key string) error
-}
-```
+`lil` itself remains the canonical IR API.
 
 ## Assembly and Binary Forms
 

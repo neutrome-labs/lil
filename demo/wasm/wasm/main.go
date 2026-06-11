@@ -8,9 +8,9 @@ import (
 	"syscall/js"
 
 	"github.com/neutrome-labs/lil"
-	"github.com/neutrome-labs/lil/manip"
-	"github.com/neutrome-labs/lil/manip/kvtools"
-	"github.com/neutrome-labs/lil/manip/slwin"
+	"github.com/neutrome-labs/lilsdk-go/manip"
+	"github.com/neutrome-labs/lilsdk-go/manip/kvtools"
+	"github.com/neutrome-labs/lilsdk-go/manip/slwin"
 )
 
 const styleLIL = "lil"
